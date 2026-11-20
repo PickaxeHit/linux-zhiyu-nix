@@ -14,6 +14,7 @@ mkdir -p "$(dirname "$out")"
 rm -rf "$build"
 mkdir -p "$build"
 cp -a "$src/." "$build/"
+chmod -R u+w "$build"
 src=$build
 jobs=${JOBS:-$(nproc)}
 CROSS=${CROSS_COMPILE-aarch64-linux-gnu-}

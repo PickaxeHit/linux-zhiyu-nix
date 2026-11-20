@@ -60,3 +60,143 @@ https://github.com/KunBuFenZi/progt13-ubuntu
 
 ### 构建与开发
 见 `./build.sh help` 查看构建目标。`./build.sh all` 构建公共镜像及三发行版软件包；使用 Docker 或 Podman。`python3 scripts/deps.py lock --missing` 锁定依赖。
+
+### Nix / NixOS
+
+Flake 使用原生 `aarch64-linux` 构建。在 x86_64 Linux 上可求值，或通过
+[Nix remote builder](https://nix.dev/manual/nix/latest/advanced-topics/distributed-builds.html)
+把构建交给 ARM64 主机。求值只需要主仓源码和 `flake.lock`，无需初始化子模块。
+
+```bash
+nix flake show github:PickaxeHit/linux-zhiyu-next --all-systems
+nix build github:PickaxeHit/linux-zhiyu-next#kernel
+nix build 'github:PickaxeHit/linux-zhiyu-next#kernel^dev,modules'
+nix build github:PickaxeHit/linux-zhiyu-next#initramfs
+nix build github:PickaxeHit/linux-zhiyu-next#zhiyu-images
+```
+
+`zhiyu-images` 包含四个分区镜像、大小和 SHA-256 清单。可单独构建
+`zhiyu-boot`、`zhiyu-vendor-boot`、`zhiyu-init-boot` 和 `zhiyu-vbmeta`。
+启动镜像使用仓库公开的 AVB 测试密钥，需要解锁的 Bootloader。
+生产签名密钥应在 Nix 之外的签名环节使用。
+
+内核通过 `linuxManualConfig` 读取共享 Kconfig，输出内核、模块和外部模块
+所需的开发树。Nix 构建显式设置空的 `LOCALVERSION`，仅使用 Kconfig 中
+的 `-zhiyu` 后缀。DTB 只依赖内核源码中的绑定头文件和主仓 DTS。
+静态早期启动组件独立构建，ramdisk 由传统构建也使用的脚本组装。
+固件、AudioReach topology、SNS 配置、UCM2 和用户态硬件支持都有独立输出。
+
+#### NixOS 安装与更新
+
+在自己的 Flake 中引用 BSP。以下示例选择锁内的 nixpkgs，也可以选用 libcamera
+ABI 为 0.7 或 0.8 的其他 nixpkgs 版本。设备 overlay 会让 PipeWire 等消费者
+从源码链接到对应 ABI 的 Zhiyu fork。需要原版 libcamera 时设
+`zhiyu.camera.enable = false`。
+
+```nix
+{
+  inputs.zhiyu.url = "github:PickaxeHit/linux-zhiyu-next";
+  inputs.nixpkgs.follows = "zhiyu/nixpkgs";
+
+  outputs = { nixpkgs, zhiyu, ... }: {
+    nixosConfigurations.tablet = nixpkgs.lib.nixosSystem {
+      system = "aarch64-linux";
+      modules = [
+        zhiyu.nixosModules.default
+        ./configuration.nix
+      ];
+    };
+  };
+}
+```
+
+在 `configuration.nix` 设置 `zhiyu.enable = true`，并配置根文件系统、
+主机名和用户。`nix/example.nix` 是 ext4 microSD 示例，其根分区为
+`/dev/mmcblk0p1`，`boot.kernelParams` 包含 `zhiyu.root=sd`。
+Android userdata 方案把根目录放在 `/data/linux`，移除 `zhiyu.root=sd`，
+并按实际设备配置 F2FS 根。使用 metadata encryption 时早期启动会建立
+`/dev/mapper/android-data-root`。传感器 registry 位于
+`/var/lib/zhiyu-qcom/sensors/registry`。
+
+1. 将根文件系统挂到 `/mnt` 后执行
+   `nixos-install --flake .#tablet --root /mnt --no-bootloader`。
+   这会建立根文件系统中的 NixOS system profile。
+2. 构建该 generation 对应的镜像。
+   `nix build .#nixosConfigurations.tablet.config.system.build.zhiyuImages`。
+   首次刷写使用上文的 Android 底包和 fastboot 流程，把四个镜像作为一组刷入
+   为 Linux 预留的 slot。默认的独立 `#zhiyu-images` 使用通用参数。
+3. 在运行的 Zhiyu NixOS 上，先执行
+   `sudo zhiyu-install --dry-run --expect-slot b /nix/var/nix/profiles/system`，
+   其中 `b` 应替换为 Linux 正在运行的 slot。需要安装时去掉 `--dry-run`。
+   若明确启用了 `zhiyu.flashOnSwitch`，`nixos-rebuild boot` 和
+   `nixos-rebuild switch` 会通过 NixOS external bootloader 调用同一个工具。
+
+`boot.kernelParams` 进入 boot.img，`zhiyu.bootconfig` 进入 vendor_boot.img。
+早期启动同时核对内核及模块的构建标识，以及 DTB、ramdisk、bootconfig 的
+构建标识。它优先选择兼容的当前 profile，随后检查已安装、待安装和历史
+generation。两条标识都匹配才进入 NixOS stage 2。每个 generation 保留自己的
+镜像，回滚时可以用同一工具恢复旧镜像。纯用户态更新会跳过内容一致的分区。
+工具只写当前 Linux slot，检查整套镜像和板载 UFS 分区后开始写入，最后写
+vbmeta 并逐项读回校验。如果写入中断，四分区更新仍可能处于混合状态，
+应重新完成安装或通过 fastboot 恢复再重启。
+
+#### 更新源码锁
+
+```bash
+# 更新 Git 依赖时先编辑 deps/deps.json 的 tag，再解析该依赖
+python3 scripts/deps.py lock firmware
+# 移动子模块后先 git add 相应子模块目录
+python3 scripts/gen-nix-sources.py
+python3 scripts/gen-nix-sources.py --check
+# 可选，重新计算并核对下载内容及生成的版本
+python3 scripts/gen-nix-sources.py --check --verify-hashes
+# 单独更新工具链时
+nix flake update nixpkgs
+```
+
+Git 依赖提交以 `deps/deps.json` 为准，内核与 libcamera 提交以主仓
+Git index 中的 gitlink 为准，Cargo crate 固定在 `keymint/idlc.Cargo.lock`。
+`deps/nix-sources.json` 由工具生成，保存固定输出 fetcher 用的哈希和从源码
+提取的版本。GitHub、Gitiles 归档使用解包目录的递归哈希，Git fetcher 使用
+导出目录的 NAR 哈希。普通 tarball 的归档字节哈希仍由 `deps.json` 声明。
+锁检查不联网，ARM64 构建会校验实际固定输出。
+
+#### CI 和二进制缓存
+
+`Nix BSP` workflow 单独验证版本锁、Flake、外部模块、启动工具和四个镜像，
+并检查 NixOS 使用的 kernel、firmware 和 initramfs 与独立包一致。可在手动
+构建时启用 `build_nixos` 验证示例最小系统。
+
+缓存包含 kernel、modules、外部模块用的开发树、DTB、initramfs、固件、
+设备用户态及可独立重用的早期工具。发布使用这些输出的运行时闭包，跳过
+cache.nixos.org 已提供的路径。Android 镜像在 CI 中验证，用户按自己的
+cmdline 和 LSM 在本地生成。内核源码归档、编译器、Cargo vendor 树和
+临时构建目录仅在需要编译时获取。
+
+维护者可运行下列命令生成自己的缓存密钥。将私钥写入 Actions secret
+`NIX_CACHE_SIGNING_KEY`，将公开密钥写入 Actions variable
+`NIX_CACHE_PUBLIC_KEY` 并分发给使用者。私钥文件应置于仓库和 Nix store
+之外。
+
+```bash
+umask 077
+nix key generate-secret --key-name linux-zhiyu-next-1 > /secure/path/zhiyu-cache.key
+nix key convert-secret-to-public < /secure/path/zhiyu-cache.key
+```
+
+在默认分支手动运行 workflow 并选中 `publish_cache`。发布步骤先上传并
+验证 GitHub Release 中的 NAR，再合并 `nix-repodata` 上的索引。
+发布失败时，可填原任务的 `cache_from_run` 重试仍有效的 artifact。
+缺少 secret 时构建和校验仍可运行。消费者配置如下，其中公开密钥使用
+维护者提供的实际值。
+
+```nix
+{
+  nix.settings = {
+    extra-substituters = [ "https://raw.githubusercontent.com/PickaxeHit/linux-zhiyu-next/nix-repodata" ];
+    extra-trusted-public-keys = [ "<维护者提供的公开密钥>" ];
+  };
+}
+```
+
+分发使用同一主仓，消费者的 `flake.lock` 可以锁定具体提交或 release tag。

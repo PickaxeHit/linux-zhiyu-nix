@@ -493,6 +493,18 @@ sd_rootfs() {
 # chrooted: an absolute link such as NixOS's /nix/store path points inside
 # the new root, not into the initramfs.
 rootfs_init() {
+	# The Nix ramdisk supplies a strict selector. Treat a NixOS root as such
+	# even when it has an /sbin/init symlink.
+	if [ -x /bin/zhiyu-boot-select ]; then
+		for p in /newroot/nix/var/nix/profiles/system \
+		         /newroot/nix/var/nix/profiles/zhiyu-boot \
+		         /newroot/nix/var/nix/profiles/zhiyu-pending \
+		         /newroot/nix/var/nix/profiles/system-*-link; do
+			[ -L "$p" ] || continue
+			/bin/zhiyu-boot-select 2>/dev/kmsg
+			return $?
+		done
+	fi
 	# FHS: /sbin/init, possibly a symlink to an absolute path.
 	if [ -L /newroot/sbin/init ]; then
 		t=$(readlink /newroot/sbin/init)
