@@ -1,6 +1,6 @@
 { pkgs, sources }:
 let
-  inherit (pkgs) stdenv;
+  inherit (pkgs.pkgsMusl) stdenv;
   inherit (pkgs.buildPackages) rustPlatform;
   lockFile = ../keymint/idlc.Cargo.lock;
   mkSource = name: {
@@ -68,6 +68,10 @@ let
         ]
       )
       {
+        postPatch = ''
+          # pthread_t needs an explicit header with musl.
+          sed -i '/^#include <qcomtee_object_types.h>/a#include <pthread.h>' libminkadaptor/src/supplicant.h
+        '';
         installPhase = ''
           runHook preInstall
           mkdir -p "$out/lib" "$out/src"
@@ -95,10 +99,6 @@ let
   helpers = stdenv.mkDerivation {
     name = "zhiyu-keymint-helpers";
     nativeBuildInputs = [ pkgs.binutils ];
-    buildInputs = [
-      stdenv.cc.libc
-      stdenv.cc.libc.static
-    ];
     disallowedReferences = [
       openssl
       minkipc

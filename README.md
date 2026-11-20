@@ -83,7 +83,7 @@ nix build github:PickaxeHit/linux-zhiyu-next#zhiyu-images
 内核通过 `linuxManualConfig` 读取共享 Kconfig，输出内核、模块和外部模块
 所需的开发树。Nix 构建显式设置空的 `LOCALVERSION`，仅使用 Kconfig 中
 的 `-zhiyu` 后缀。DTB 只依赖内核源码中的绑定头文件和主仓 DTS。
-静态早期启动组件独立构建，ramdisk 由传统构建也使用的脚本组装。
+早期启动程序以 musl 静态链接，ramdisk 由传统构建也使用的脚本组装。
 固件、AudioReach topology、SNS 配置、UCM2 和用户态硬件支持都有独立输出。
 
 #### NixOS 安装与更新
@@ -173,7 +173,8 @@ Git index 中的 gitlink 为准，Cargo crate 固定在 `keymint/idlc.Cargo.lock
 设备用户态及可独立重用的早期工具。发布使用这些输出的运行时闭包，跳过
 cache.nixos.org 已提供的路径。Android 镜像在 CI 中验证，用户按自己的
 cmdline 和 LSM 在本地生成。内核源码归档、编译器、Cargo vendor 树和
-临时构建目录仅在需要编译时获取。
+临时构建目录仅在需要编译时获取。同一组输出也能通过标准 `nix copy` 发布
+到 S3 兼容的 Nix 缓存。
 
 维护者可运行下列命令生成自己的缓存密钥。将私钥写入 Actions secret
 `NIX_CACHE_SIGNING_KEY`，将公开密钥写入 Actions variable

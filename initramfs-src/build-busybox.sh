@@ -24,6 +24,9 @@ die() { echo "build-busybox.sh: $*" >&2; exit 1; }
 [ -f "$src/Makefile" ] || die "BusyBox source is missing: $src"
 cd "$src"
 
+# Backport the split-include buffer bound used by newer BusyBox releases.
+sed -i 's/fgets(line+1, buffer_size, fp_find)/fgets(line+1, buffer_size-1, fp_find)/' scripts/basic/split-include.c
+
 if [ ! -f .config ]; then
 	echo "== busybox defconfig =="
 	make ARCH=arm64 CROSS_COMPILE="$CROSS" defconfig >/dev/null

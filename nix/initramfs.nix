@@ -6,18 +6,14 @@
   keymint,
 }:
 let
-  inherit (pkgs) stdenv;
-  static = [
-    stdenv.cc.libc
-    stdenv.cc.libc.static
-  ];
+  # musl static programs do not fall back to Nix glibc loader, locale, or NSS paths.
+  inherit (pkgs.pkgsMusl) stdenv;
   staticTool =
     name: source: script: vars: inputs:
     stdenv.mkDerivation {
       pname = "zhiyu-${name}";
       inherit (source) version src;
       nativeBuildInputs = [ pkgs.file ] ++ inputs;
-      buildInputs = static;
       buildCommand = ''
         mkdir -p src/initramfs-src "$out/bin"
         cp ${script} src/initramfs-src/build.sh
@@ -39,6 +35,8 @@ let
     staticTool "fsck-f2fs" sources.f2fs-tools ../initramfs-src/build-fsck.sh
       ''
         export F2FS_SRC=${sources.f2fs-tools.src} F2FS_OUT="$out/bin/fsck.f2fs"
+        # musl exposes lseek64 as a header alias, not a separate symbol.
+        export ac_cv_func_lseek64=yes
       ''
       [
         pkgs.autoconf
@@ -48,12 +46,14 @@ let
       ];
   static-helpers = stdenv.mkDerivation {
     name = "zhiyu-static-helpers";
-    buildInputs = static;
     buildCommand = ''
       mkdir -p "$out/bin"
-      $CC -static -Os -Wall -Wextra -Werror ${../initramfs-src/src/btaddr.c} -o "$out/bin/btaddr"
-      $CC -static -Os -Wall -Wextra -Werror ${../initramfs-src/src/charger.c} -o "$out/bin/charger"
-      $CC -static -Os -Wall -Wextra -Werror ${./boot-select.c} -o "$out/bin/zhiyu-boot-select"
+      cp ${../initramfs-src/src/btaddr.c} btaddr.c
+      cp ${../initramfs-src/src/charger.c} charger.c
+      cp ${./boot-select.c} zhiyu-boot-select.c
+      for helper in btaddr charger zhiyu-boot-select; do
+        $CC -static -Os -Wall -Wextra -Werror "$helper.c" -o "$out/bin/$helper"
+      done
     '';
   };
   tree = pkgs.lib.fileset.toSource {

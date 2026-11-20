@@ -23,6 +23,7 @@ let
       "systemd-tmpfiles-setup.service"
       "systemd-modules-load.service"
     ];
+    restartTriggers = [ p.sns ];
     unitConfig.ConditionPathExists = [
       "!/dev/fastrpc-sdsp"
       "/dev/fastrpc-adsp"
@@ -97,7 +98,7 @@ in
     hardware.firmware = [ p.firmware ];
     hardware.graphics.enable = lib.mkDefault true;
     hardware.graphics.extraPackages = lib.optional cfg.videoAcceleration p.qcom-va-driver;
-    services.udev.packages = [ p.udev-rules ];
+    services.udev.packages = lib.mkAfter [ p.udev-rules ];
     boot.extraModprobeConfig = builtins.readFile ../configs/modprobe.d/99-zhiyu-no-trace.conf;
 
     environment.systemPackages = [

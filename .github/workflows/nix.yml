@@ -109,7 +109,9 @@ jobs:
       - name: Build minimal NixOS generation
         if: inputs.build_nixos
         run: |
-          nix build --no-link -L .#nixosConfigurations.zhiyu.config.system.build.toplevel
+          system=$(nix build --no-link --print-out-paths -L .#nixosConfigurations.zhiyu.config.system.build.toplevel)
+          cmp "$system/etc/zhiyu/boot-id" "$system/etc/zhiyu/boot-images/BOOT-IDS"
+          grep -Fx 'KERNEL=="v4l-subdev*", GOTO="persistent_v4l_end"' "$system/etc/udev/rules.d/60-persistent-v4l.rules"
       - name: Stage the runtime cache closure
         if: inputs.publish_cache && github.ref_name == github.event.repository.default_branch
         run: |

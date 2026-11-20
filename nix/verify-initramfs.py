@@ -30,6 +30,7 @@ for path in bin_dir.iterdir():
     require(path.stat().st_mode & 0o777 == 0o755, f"Invalid executable mode: {path}")
     require("AArch64" in output("readelf", "-h", path), f"Invalid ELF architecture: {path}")
     require(not re.search(r"INTERP|NEEDED", output("readelf", "-l", "-d", path)), f"Dynamic ELF: {path}")
+    require(not re.search(rb"/nix/store/[0-9a-z]{32}-", path.read_bytes()), f"Store reference in {path}")
 
 for name in ("init", "libexec/metadata-root"):
     path = root / name
