@@ -98,6 +98,13 @@
     "rev": "930708bb86481e88879eb1d87fd4d664f1d69503",
     "url": "https://github.com/laurencelundblade/QCBOR.git"
   },
+  "qcom-va-driver": {
+    "archive": "https://codeload.github.com/radxa-pkg/qcom-va-driver/tar.gz/35eff37ffcf79643eb29583f1960c5f636e287df",
+    "fetcher": "unpacked",
+    "hash": "sha256-f8lFb8PvM9Iuvpvxn4RpKbYMFhbH+U/DR2hCzMR7VMY=",
+    "rev": "35eff37ffcf79643eb29583f1960c5f636e287df",
+    "url": "https://github.com/radxa-pkg/qcom-va-driver.git"
+  },
   "quic-teec": {
     "archive": "https://codeload.github.com/quic/quic-teec/tar.gz/34fa8197a34a06ec0187c2958c776f3c3a6b9ec1",
     "fetcher": "unpacked",

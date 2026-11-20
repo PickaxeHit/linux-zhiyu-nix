@@ -52,6 +52,26 @@ rec {
     install -Dm644 ${../scripts/91-flash-led.rules} "$out/lib/udev/rules.d/91-flash-led.rules"
     install -Dm644 ${../configs/modprobe.d/99-zhiyu-no-trace.conf} "$out/lib/modprobe.d/99-zhiyu-no-trace.conf"
   '';
+  qcom-va-driver = pkgs.stdenv.mkDerivation {
+    pname = "qcom-va-driver";
+    inherit (sources.qcom-va-driver) src version;
+    nativeBuildInputs = [
+      pkgs.meson
+      pkgs.ninja
+      pkgs.pkg-config
+    ];
+    buildInputs = [
+      pkgs.libva
+      pkgs.libdrm
+      pkgs.libglvnd
+      pkgs.libgbm
+    ];
+    mesonFlags = [
+      "-Dgpu_copy=enabled"
+      "-Dcdsp_vpp=disabled"
+      "-Dvulkan_vpp=disabled"
+    ];
+  };
   hexagonrpc = pkgs.hexagonrpc.overrideAttrs {
     inherit (sources.hexagonrpc) src version;
   };

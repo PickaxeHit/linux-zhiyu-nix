@@ -50,6 +50,11 @@ in
       default = true;
       description = "Enable FastRPC-backed Zhiyu sensors and the SensorProxy D-Bus service.";
     };
+    videoAcceleration = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Install the Qualcomm Iris VA-API driver.";
+    };
     bootconfig = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
@@ -91,6 +96,7 @@ in
 
     hardware.firmware = [ p.firmware ];
     hardware.graphics.enable = lib.mkDefault true;
+    hardware.graphics.extraPackages = lib.optional cfg.videoAcceleration p.qcom-va-driver;
     services.udev.packages = [ p.udev-rules ];
     boot.extraModprobeConfig = builtins.readFile ../configs/modprobe.d/99-zhiyu-no-trace.conf;
 
@@ -123,7 +129,7 @@ in
     systemd.services.hexagonrpcd-adsp-rootpd = adsp "";
     systemd.services.hexagonrpcd-adsp-sensorspd = lib.mkIf cfg.sensors.enable (adsp "-s");
     services.dbus.packages = lib.optional cfg.sensors.enable p.sensord;
-    hardware.sensor.iio.enable = lib.mkIf cfg.sensors.enable (lib.mkDefault false);
+    hardware.sensor.iio.enable = lib.mkIf cfg.sensors.enable (lib.mkForce false);
     systemd.services.zhiyu-sensord = lib.mkIf cfg.sensors.enable {
       wantedBy = [ "multi-user.target" ];
       after = [ "hexagonrpcd-adsp-sensorspd.service" ];

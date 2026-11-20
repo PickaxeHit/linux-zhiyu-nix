@@ -115,7 +115,8 @@ ABI 为 0.7 或 0.8 的其他 nixpkgs 版本。设备 overlay 会让 PipeWire �
 `/dev/mmcblk0p1`，`boot.kernelParams` 包含 `zhiyu.root=sd`。
 Android userdata 方案把根目录放在 `/data/linux`，移除 `zhiyu.root=sd`，
 并按实际设备配置 F2FS 根。使用 metadata encryption 时早期启动会建立
-`/dev/mapper/android-data-root`。传感器 registry 位于
+`/dev/mapper/android-data-root`。设备模块默认安装 Qualcomm Iris VA-API
+驱动，可通过 `zhiyu.videoAcceleration = false` 禁用。传感器 registry 位于
 `/var/lib/zhiyu-qcom/sensors/registry`。
 
 1. 将根文件系统挂到 `/mnt` 后执行
@@ -130,6 +131,7 @@ Android userdata 方案把根目录放在 `/data/linux`，移除 `zhiyu.root=sd`
    其中 `b` 应替换为 Linux 正在运行的 slot。需要安装时去掉 `--dry-run`。
    若明确启用了 `zhiyu.flashOnSwitch`，`nixos-rebuild boot` 和
    `nixos-rebuild switch` 会通过 NixOS external bootloader 调用同一个工具。
+   确认系统正常启动后，可用 `sudo qbootctl -m` 标记该 slot 启动成功。
 
 `boot.kernelParams` 进入 boot.img，`zhiyu.bootconfig` 进入 vendor_boot.img。
 早期启动同时核对内核及模块的构建标识，以及 DTB、ramdisk、bootconfig 的

@@ -46,7 +46,7 @@ in
     assert image.zhiyu-init-boot.drvPath == p.zhiyu-init-boot.drvPath;
     assert image.zhiyu-vbmeta.drvPath != p.zhiyu-vbmeta.drvPath;
     assert builtins.any (
-      input: input.drvPath == pkgs.libcamera.drvPath
+      input: (input.pname or "") == "libcamera-zhiyu" && input.drvPath == pkgs.libcamera.drvPath
     ) cfg.system.build.zhiyuPipewire.buildInputs;
     runCommand "zhiyu-evaluation" { } "touch $out";
   boot-tools =
