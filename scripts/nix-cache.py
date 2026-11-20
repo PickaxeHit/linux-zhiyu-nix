@@ -157,7 +157,7 @@ def publish(directory, repository, tag, secret):
         key_name = secret.split(":", 1)[0]
         paths = "\n".join(meta["StorePath"] for _, meta, _ in entries)
         run("nix", "store", "sign", "--store", directory.as_uri(), "--key-file", str(key),
-            "--no-recursive", "--stdin", input=paths + "\n")
+            "--stdin", input=paths + "\n")
     for info, _, _ in entries:
         require(any(line.startswith(f"Sig: {key_name}:") for line in info.read_text().splitlines()),
                 f"Nix did not sign {info.name}")

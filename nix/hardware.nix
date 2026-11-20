@@ -4,7 +4,7 @@ let
   raw = sources.firmware.src;
   # alsatplg needs neither the ALSA runtime plugins nor PipeWire.
   topologyTools = pkgs.alsa-utils.override {
-    alsa-plugins = pkgs.emptyDirectory;
+    alsa-plugins = runCommand "zhiyu-no-alsa-plugins" { } ''mkdir -p "$out/lib/alsa-lib"'';
     withPipewireLib = false;
   };
   copyFirmware = ''

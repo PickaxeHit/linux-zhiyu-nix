@@ -95,7 +95,7 @@ let
         export BB_OUT=${busybox}/bin/busybox FSCK_OUT=${fsck-f2fs}/bin/fsck.f2fs
         export STATIC_HELPERS=${static-helpers} KEYMINT_TOOLS=${keymint}
         export FW_SRC=${firmware} FW_TREE=${firmware}/lib/firmware
-        PREBUILT=1 OUT="$PWD/stage" bash source/initramfs-src/build.sh
+        PREBUILT=1 STAGE_PARENT="$PWD" OUT="$PWD/stage" bash source/initramfs-src/build.sh
 
         python3 ${./verify-initramfs.py} stage "$VER"
         find stage -exec touch -h -d @1 {} +

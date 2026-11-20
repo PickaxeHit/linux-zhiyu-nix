@@ -34,7 +34,7 @@ file -b "$BB" | grep -q "statically linked" || die "$BB is not statically linked
 
 
 # ---- 2. staging tree ------------------------------------------------------
-stage=$(mktemp -d "${TMPDIR:-$here}/.stage.XXXXXX")
+stage=$(mktemp -d "${STAGE_PARENT:-$here}/.stage.XXXXXX")
 trap 'rm -rf "$stage"' EXIT
 mkdir -p "$stage"/bin "$stage"/dev/pts "$stage"/etc/modprobe.d \
 	"$stage"/lib/firmware "$stage"/lib/modules/"$VER" \

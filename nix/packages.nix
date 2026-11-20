@@ -41,6 +41,7 @@ let
     // defaultImages
     // {
       inherit kernel dtb;
+      inherit (pkgs) libcamera;
       libcamera-0_7 = import ./libcamera.nix {
         base = cameraBase;
         source = sources."libcamera/0.7";
