@@ -46,10 +46,11 @@ rec {
     cp -r ${../scripts/alsa-ucm2}/. "$out/share/alsa/ucm2/"
   '';
   udev-rules = runCommand "zhiyu-udev-rules" { } ''
-    install -Dm644 ${../scripts/60-persistent-v4l.rules} "$out/lib/udev/rules.d/60-zhiyu-persistent-v4l.rules"
+    install -Dm644 ${../scripts/60-persistent-v4l.rules} "$out/lib/udev/rules.d/60-persistent-v4l.rules"
     install -Dm644 ${../scripts/90-fastrpc.rules} "$out/lib/udev/rules.d/90-fastrpc.rules"
     install -Dm644 ${../scripts/90-dma-heap.rules} "$out/lib/udev/rules.d/90-dma-heap.rules"
-    install -Dm644 ${../scripts/91-flash-led.rules} "$out/lib/udev/rules.d/91-flash-led.rules"
+    substitute ${../scripts/91-flash-led.rules} "$out/lib/udev/rules.d/91-flash-led.rules" \
+      --replace-fail /bin/chmod ${pkgs.coreutils}/bin/chmod
     install -Dm644 ${../configs/modprobe.d/99-zhiyu-no-trace.conf} "$out/lib/modprobe.d/99-zhiyu-no-trace.conf"
   '';
   qcom-va-driver = pkgs.stdenv.mkDerivation {

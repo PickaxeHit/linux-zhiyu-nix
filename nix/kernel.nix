@@ -10,12 +10,9 @@
 let
   inherit (source) src version;
   configfile = ../configs + "/linux-${lib.versions.majorMinor version}-zhiyu.config";
+  configLines = lib.splitString "\n" (builtins.readFile configfile);
   localVersion = builtins.head (
-    lib.filter (line: line != null) (
-      map (builtins.match ''CONFIG_LOCALVERSION="(.*)"'') (
-        lib.splitString "\n" (builtins.readFile configfile)
-      )
-    )
+    lib.filter (line: line != null) (map (builtins.match ''CONFIG_LOCALVERSION="(.*)"'') configLines)
   );
 in
 (linuxManualConfig {
@@ -28,10 +25,7 @@ in
     ;
   # Keep the fixed default seed unless randstruct is actually enabled.
   randstructSeed =
-    if lib.hasInfix "\nCONFIG_RANDSTRUCT_NONE=y\n" (builtins.readFile configfile) then
-      ""
-    else
-      randstructSeed;
+    if builtins.elem "CONFIG_RANDSTRUCT_NONE=y" configLines then "" else randstructSeed;
   modDirVersion = version + builtins.head localVersion;
   buildDTBs = false;
   extraMeta.platforms = [ "aarch64-linux" ];

@@ -31,15 +31,22 @@ def sources():
             result[name] = {key: entry[key] for key in ("url", "rev")}
         else:
             result[name] = {key: entry[key] for key in ("url", "sha256")}
-    for line in run("git", "ls-files", "--stage").splitlines():
+    modules = {}
+    for entry in run("git", "config", "-z", "-f", ".gitmodules", "--get-regexp",
+                     r"^submodule\..*\.path$").rstrip("\0").split("\0"):
+        key, path = entry.split("\n", 1)
+        modules[path] = key.removesuffix(".path") + ".url"
+    for line in run("git", "ls-files", "--stage", "-z").rstrip("\0").split("\0"):
         record, path = line.split("\t", 1)
         mode, rev, stage = record.split()
         if mode != "160000":
             continue
         if stage != "0":
             raise ValueError(f"resolve unmerged gitlink {path}")
+        if path not in modules:
+            raise ValueError(f"{path}: missing .gitmodules entry")
         result[path] = {
-            "url": run("git", "config", "-f", ".gitmodules", "--get", f"submodule.{path}.url"),
+            "url": run("git", "config", "-f", ".gitmodules", "--get", modules[path]),
             "rev": rev,
         }
     for spec in result.values():

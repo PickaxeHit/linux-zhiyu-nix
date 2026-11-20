@@ -67,7 +67,6 @@ jobs:
       - uses: cachix/install-nix-action@d698718aa798980d17dd749f03beae0b51183399 # v31
       - name: Validate locks, formatting and flake
         run: |
-          ulimit -s 65536
           python3 scripts/deps.py check --locked
           python3 scripts/gen-nix-sources.py --check
           nix fmt -- --check flake.nix nix/*.nix
@@ -106,12 +105,10 @@ jobs:
           echo "NIX_USER_CONF_FILES=$GITHUB_ENV.nix" >> "$GITHUB_ENV"
       - name: Build and verify the BSP
         run: |
-          ulimit -s 65536
           nix flake check -L --keep-going
       - name: Build minimal NixOS generation
         if: inputs.build_nixos
         run: |
-          ulimit -s 65536
           nix build --no-link -L .#nixosConfigurations.zhiyu.config.system.build.toplevel
       - name: Stage the runtime cache closure
         if: inputs.publish_cache && github.ref_name == github.event.repository.default_branch

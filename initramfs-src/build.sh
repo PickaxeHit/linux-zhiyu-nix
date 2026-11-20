@@ -99,6 +99,9 @@ fi
 # .sources/firmware; it carries the firmware tree, the SNS registry and its
 # own license notices.
 cp -a "${FW_TREE:-$firmware/firmware}/." "$stage/lib/firmware/"
+if [ "${PREBUILT:-0}" = 1 ]; then
+	find "$stage/lib/firmware" -type d -exec chmod 0755 {} +
+fi
 
 # the SM8750 audio topology is *built* (m4 + alsatplg), not a blob: it is
 # installed on top of the firmware tree at the path the ADSP firmware looks for
@@ -121,7 +124,9 @@ done < "$here/modules.tsv"
 
 # ---- 5. modprobe index and load order -------------------------------------
 if [ "${PREBUILT:-0}" = 1 ]; then
-	install -m 0644 "$MODULES_DIR"/../modules.builtin{,.modinfo} "$stage/lib/modules/$VER/"
+	moddir="$stage/lib/modules/$VER"
+	install -m 0644 "$MODULES_DIR"/../modules.builtin{,.modinfo} "$moddir/"
+	awk -F '\t' '$1 != "" && $1 !~ /^#/ { print $1 }' "$here/modules.tsv" > "$moddir/modules.order"
 	# depmod returns success for unresolved symbols, so inspect diagnostics.
 	depmod -e -F "$SYSTEM_MAP" -b "$stage" "$VER" 2> "$stage/depmod.log"
 	if [ -s "$stage/depmod.log" ]; then
