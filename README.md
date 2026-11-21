@@ -134,7 +134,7 @@ nix flake update nixpkgs
 Git 依赖提交以 `deps/deps.json` 为准，内核与 libcamera 提交以主仓
 Git index 中的 gitlink 为准，Cargo crate 固定在 `keymint/idlc.Cargo.lock`。
 `deps/nix-sources.json` 由工具生成，保存固定输出 fetcher 用的哈希和从源码
-提取的版本。传统后端专用条目可设置 `"nix": false`，CI 仍将其列入稳定分支版本表。
+提取的版本。传统后端专用条目可设置 `"nix": false`，这类条目由传统后端的依赖锁校验覆盖。
 GitHub 归档使用解包目录的递归哈希，Git fetcher 使用
 导出目录的 NAR 哈希。普通 tarball 的归档字节哈希仍由 `deps.json` 声明。
 锁检查不联网，ARM64 构建会校验实际固定输出。
@@ -171,7 +171,7 @@ nix key convert-secret-to-public < /secure/path/zhiyu-cache.key
 ```nix
 {
   nix.settings = {
-    extra-substituters = [ "https://raw.githubusercontent.com/PickaxeHit/linux-zhiyu-next/nix-repodata" ];
+    extra-substituters = [ "https://raw.githubusercontent.com/PickaxeHit/linux-zhiyu-nix/nix-repodata" ];
     extra-trusted-public-keys = [ "<维护者提供的公开密钥>" ];
   };
 }
