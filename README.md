@@ -23,6 +23,9 @@
 | 磁吸键盘 | ❌ | 未适配，无法测试 |
 | 杜比音效 | ❌ | 无法适配 |
 ### 食用方法
+以下镜像和安装步骤适用于 Debian、Arch Linux ARM 和 Fedora。NixOS 请使用同一次
+[Rootfs Builder](https://github.com/PickaxeHit/linux-zhiyu-rootfs-builder-test) 构建中的 rootfs 和四张配套镜像。
+
 1. 请先解锁Bootloader  
 2. 底包基于ZUXOS 2.0.10.252，请自行提取底包或首先刷入该ROM（或基于该底包的ROM），并同步AB槽
    * 可以使用bootloader刷入的：bluetooth, boot, cpucp, cpucp_dtb, dsp, dtbo, featenabler, init_boot, modem, multiimgqti, pdp, pvmfw, qweslicstore, recovery, shrm, soccp_dcd, soccp_debug, spuservice, uefi, vbmeta, vbmeta_system, vendor_boot
