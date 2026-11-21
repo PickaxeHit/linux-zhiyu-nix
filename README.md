@@ -65,14 +65,16 @@ https://github.com/KunBuFenZi/progt13-ubuntu
 
 Flake 使用原生 `aarch64-linux` 构建。在 x86_64 Linux 上可求值，或通过
 [Nix remote builder](https://nix.dev/manual/nix/latest/advanced-topics/distributed-builds.html)
-把构建交给 ARM64 主机。求值只需要主仓源码和 `flake.lock`，无需初始化子模块。
+把构建交给 ARM64 主机。求值无需初始化子模块。日常使用可选择由 CI 发布的 `nix-stable` 分支，
+其中包含构建所需源码以及自动生成的 `SOURCE-COMMITS.md`，记录主仓、内核、
+libcamera、外部依赖和 nixpkgs 的完整提交。
 
 ```bash
-nix flake show github:PickaxeHit/linux-zhiyu-next --all-systems
-nix build github:PickaxeHit/linux-zhiyu-next#kernel
-nix build 'github:PickaxeHit/linux-zhiyu-next#kernel^dev,modules'
-nix build github:PickaxeHit/linux-zhiyu-next#initramfs
-nix build github:PickaxeHit/linux-zhiyu-next#zhiyu-images
+nix flake show github:PickaxeHit/linux-zhiyu-next/nix-stable --all-systems
+nix build github:PickaxeHit/linux-zhiyu-next/nix-stable#kernel
+nix build 'github:PickaxeHit/linux-zhiyu-next/nix-stable#kernel^dev,modules'
+nix build github:PickaxeHit/linux-zhiyu-next/nix-stable#initramfs
+nix build github:PickaxeHit/linux-zhiyu-next/nix-stable#zhiyu-images
 ```
 
 `zhiyu-images` 包含四个分区镜像、大小和 SHA-256 清单。可单独构建
@@ -95,7 +97,7 @@ ABI 为 0.7 或 0.8 的其他 nixpkgs 版本。设备 overlay 会让 PipeWire �
 
 ```nix
 {
-  inputs.zhiyu.url = "github:PickaxeHit/linux-zhiyu-next";
+  inputs.zhiyu.url = "github:PickaxeHit/linux-zhiyu-next/nix-stable";
   inputs.nixpkgs.follows = "zhiyu/nixpkgs";
 
   outputs = { nixpkgs, zhiyu, ... }: {
@@ -202,4 +204,7 @@ nix key convert-secret-to-public < /secure/path/zhiyu-cache.key
 }
 ```
 
-分发使用同一主仓，消费者的 `flake.lock` 可以锁定具体提交或 release tag。
+维护者在 `main` 更新源码和锁文件。默认分支的 Nix CI 验证通过后，
+会自动为 `nix-stable` 追加精简快照和版本表。消费者可引用
+`github:PickaxeHit/linux-zhiyu-next/nix-stable`，由自己的 `flake.lock` 固定快照。
+`nix-repodata` 继续提供独立的二进制缓存索引。
