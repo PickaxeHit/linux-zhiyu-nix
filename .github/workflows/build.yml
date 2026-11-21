@@ -1,4 +1,4 @@
-name: Build images and packages
+name: Build & Publish
 
 on:
   push:
@@ -6,11 +6,15 @@ on:
   workflow_dispatch:
     inputs:
       kernel:
-        description: Build the kernel and the signed images
+        description: Build the kernel and signed boot images for Debian, Arch Linux ARM and Fedora
         type: boolean
         default: true
       packages:
-        description: Build the libcamera and sensord packages
+        description: Build userspace packages for Debian, Arch Linux ARM and Fedora
+        type: boolean
+        default: true
+      nix:
+        description: Build and verify the Nix BSP packages
         type: boolean
         default: true
       image_compression:
@@ -19,7 +23,7 @@ on:
         options: [zstd, xz]
         default: xz
       publish:
-        description: Publish packages and signed images after a complete build
+        description: Publish selected package repositories, the Nix binary cache and signed boot images
         type: boolean
         default: false
       strict_lock:
@@ -35,6 +39,8 @@ concurrency:
 
 jobs:
   common:
+    name: Build shared images and kernel
+    if: github.event_name == 'push' || inputs.kernel || inputs.packages || !inputs.nix
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 300
     outputs:
@@ -135,6 +141,7 @@ jobs:
           retention-days: 7
 
   packages:
+    name: Build packages (${{ matrix.distro }})
     needs: common
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
@@ -283,7 +290,21 @@ jobs:
           overwrite: true
           retention-days: 7
 
+  nix:
+    name: Nix
+    permissions:
+      actions: read
+      contents: read
+    if: github.event_name == 'push' || inputs.nix
+    uses: ./.github/workflows/nix.yml
+    with:
+      publish_cache: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+    secrets:
+      NIX_CACHE_SIGNING_KEY: ${{ secrets.NIX_CACHE_SIGNING_KEY }}
+      PACKAGE_PUBLISH_TOKEN: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}
+
   publish:
+    name: Publish package repositories
     needs: build
     if: (github.event_name == 'push' || inputs.publish) && (github.event_name == 'push' || inputs.kernel) && (github.event_name == 'push' || inputs.packages)
     permissions:

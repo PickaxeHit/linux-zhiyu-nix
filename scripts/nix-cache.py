@@ -174,7 +174,7 @@ def publish(directory, repository, tag, secret):
             pending.append((nar, digest))
     if pending:
         if not any(release["tag_name"] == tag for release in gh_api_pages(f"repos/{repository}/releases")):
-            create_release(repository, tag, f"Zhiyu NARs {tag}")
+            create_release(repository, tag, f"Zhiyu Nix binary cache objects ({tag})")
         for nar, _ in pending:
             run("gh", "release", "upload", tag, str(nar), "--repo", repository)
         release = json.loads(run("gh", "api", f"repos/{repository}/releases/tags/{quote(tag)}"))
@@ -239,7 +239,7 @@ def create_release(repository, tag, title, *files):
     run("gh", "release", "create", tag, *(str(p) for p in files),
         "--repo", repository, "--target", repo["default_branch"],
         "--title", title, "--prerelease", "--latest=false",
-        "--notes", "Zhiyu binary cache for Nix.")
+        "--notes", "Lenovo TB378FC signed Nix binary cache. Use the nix-cache-index Release download URL as the substituter.")
 
 
 def main():

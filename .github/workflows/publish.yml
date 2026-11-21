@@ -1,5 +1,4 @@
 name: Publish package repositories
-run-name: Publish package repositories
 
 on:
   workflow_call:
@@ -9,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       build_run:
-        description: Successful Build images and packages run ID
+        description: Successful Build & Publish run ID
         required: true
         type: string
   # Retry publishing retained build artifacts without rebuilding, via a
@@ -65,7 +64,7 @@ jobs:
             (.path == ".github/workflows/build.yml" or .path == ".github/workflows/images.yml") and
             .status == "completed" and
             .head_repository.full_name == $repo and
-            (.head_branch == "main" or .head_branch == "package-repositories")
+            (.head_branch == "main" or .head_branch == "package-repositories" or .head_branch == "nix-full")
           ' <<< "$build" >/dev/null
           # A publishing failure can be retried using the completed build job.
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs" |
@@ -149,7 +148,11 @@ jobs:
             test "${#packages[@]}" -eq "$expected"
             # Rolling repository tags are created on the default branch, not on
             # an older build SHA (GITHUB_TOKEN cannot always create such refs).
-            notes="Flat package repository for Lenovo TB378FC. Build commit: $build_sha. Use the release download URL as the repository base."
+            case "$distro" in
+              debian) label=Debian ;;
+              archlinuxarm) label='Arch Linux ARM' ;;
+            esac
+            notes="Lenovo TB378FC package repository for $label. Build commit: $build_sha. Use this Release download URL as the repository base."
             if gh release view "$tag" --repo "$PACKAGE_REPOSITORY" >/dev/null 2>&1; then
               # Save the previous asset names before uploading. Prune only after
               # the new indexes are live so they always have matching packages.
@@ -166,11 +169,11 @@ jobs:
                     ;;
                 esac
               done <<< "$previous"
-              gh release edit "$tag" --repo "$PACKAGE_REPOSITORY" --prerelease=false --latest=false --notes "$notes"
+              gh release edit "$tag" --repo "$PACKAGE_REPOSITORY" --prerelease=false --latest=false --title "Zhiyu $label package repository" --notes "$notes"
             else
               gh release create "$tag" --repo "$PACKAGE_REPOSITORY" "${packages[@]}" "${indexes[@]}" \
                 --latest=false \
-                --title "Zhiyu $distro nightly repository" \
+                --title "Zhiyu $label package repository" \
                 --notes "$notes"
             fi
           done
@@ -190,7 +193,7 @@ jobs:
             images+=(out/release-images/manifest.json)
           fi
           checksums=out/release-images/SHA256SUMS
-          printf 'Signed Lenovo TB378FC boot images from build commit %s.\n' "$build_sha" > image-release-notes.md
+          printf 'Lenovo TB378FC signed boot images. Build commit: %s. Verify the files against SHA256SUMS before installing.\n' "$build_sha" > image-release-notes.md
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "${images[@]}" --clobber
             gh release upload "$tag" "$checksums" --clobber

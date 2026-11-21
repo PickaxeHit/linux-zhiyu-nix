@@ -32,7 +32,7 @@ for name in "${names[@]}"; do
 done
 createrepo_c --baseurl "$baseurl$tag/" "$rpms"
 notes="$work/release-notes.md"
-printf 'DNF baseurl: %s\n' "$baseurl" > "$notes"
+printf 'Lenovo TB378FC package repository for Fedora. Build commit: %s.\n\nDNF baseurl: %s\n' "$sha" "$baseurl" > "$notes"
 metadata=("$rpms/repodata/"*)
 printf '\n## Upstream sources · 上游源码\n\nBuild commit: %s\n\n' "$sha" >> "$notes"
 # The build commit records the source revisions in deps/deps.json.
@@ -68,8 +68,8 @@ if gh release view "$tag" --repo "$repository" >/dev/null 2>&1; then
         fi
     done
     gh release upload "$tag" "$rpms/repodata/repomd.xml" --clobber --repo "$repository"
-    gh release edit "$tag" --notes-file "$notes" --repo "$repository"
+    gh release edit "$tag" --title "Zhiyu Fedora package repository" --notes-file "$notes" --repo "$repository"
 else
     gh release create "$tag" "${packages[@]}" "${metadata[@]}" --latest=false \
-        --repo "$repository" --title "Zhiyu Fedora RPM repository" --notes-file "$notes"
+        --repo "$repository" --title "Zhiyu Fedora package repository" --notes-file "$notes"
 fi
