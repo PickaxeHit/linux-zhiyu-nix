@@ -1,15 +1,26 @@
-name: Publish package repositories
+name: Publish packages and cache
 
 on:
   workflow_call:
+    inputs:
+      publish_packages:
+        type: boolean
+        default: false
+      publish_nix_cache:
+        type: boolean
+        default: false
     secrets:
+      NIX_CACHE_SIGNING_KEY:
+        required: false
       PACKAGE_PUBLISH_TOKEN:
         required: false
   workflow_dispatch:
     inputs:
       build_run:
-        description: Successful Build & Publish run ID
-        required: true
+        description: Build & Publish run ID for traditional package repositories and images
+        type: string
+      nix_cache_from_run:
+        description: Build & Publish run ID for a retained Nix cache artifact (default branch only)
         type: string
   # Retry publishing retained build artifacts without rebuilding, via a
   # publish-packages-<run_id> branch or tag (or workflow_dispatch).
@@ -30,7 +41,21 @@ env:
   PACKAGE_REPOSITORY: PickaxeHit/linux-zhiyu-pkgs
 
 jobs:
+  require_source:
+    name: Check publication inputs
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      !inputs.publish_packages && !inputs.publish_nix_cache &&
+      inputs.build_run == '' && inputs.nix_cache_from_run == ''
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo 'Provide a build_run or nix_cache_from_run to republish artifacts.' >&2
+          exit 1
+
   publish:
+    name: Publish package repositories and images
+    if: inputs.publish_packages || inputs.build_run != '' || startsWith(github.ref_name, 'publish-packages-')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -212,3 +237,73 @@ jobs:
         run: |
           sudo apt-get install -y createrepo-c
           scripts/publish-fedora-rpms.sh out/fedora-rpms "$build_sha"
+
+  nix_publish:
+    name: Publish Nix binary cache
+    if: inputs.publish_nix_cache || inputs.nix_cache_from_run != ''
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: nix-cache-publish
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Require the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
+            echo 'Nix cache publication must run from the default branch.' >&2
+            exit 1
+          fi
+      - name: Validate the artifact run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_RUN: ${{ inputs.nix_cache_from_run || github.run_id }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          [[ $ARTIFACT_RUN =~ ^[0-9]+$ ]]
+          endpoint="repos/$GITHUB_REPOSITORY/actions/runs/$ARTIFACT_RUN"
+          gh api "$endpoint" | jq -e --arg repo "$GITHUB_REPOSITORY" --arg branch "$DEFAULT_BRANCH" '
+            .head_repository.full_name == $repo and .head_branch == $branch
+            and (.path == ".github/workflows/nix.yml" or .path == ".github/workflows/build.yml")
+            and .event == "workflow_dispatch"
+          '
+          gh api --paginate --slurp "$endpoint/jobs?per_page=100" |
+            jq -e 'any(.[].jobs[]; .conclusion == "success" and
+              (.name == "Native ARM64" or .name == "Build Nix packages (ARM64)" or
+               (.name | endswith("Build packages (ARM64)"))))'
+      - name: Check that publication is configured
+        id: signing
+        env:
+          NIX_CACHE_SIGNING_KEY: ${{ secrets.NIX_CACHE_SIGNING_KEY }}
+          PACKAGE_PUBLISH_TOKEN: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}
+        run: |
+          if [[ -n "$NIX_CACHE_SIGNING_KEY" ]]; then
+            : "${PACKAGE_PUBLISH_TOKEN:?Set PACKAGE_PUBLISH_TOKEN with write access to the package repository}"
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          else
+            echo '::notice::Cache publication skipped. NIX_CACHE_SIGNING_KEY is unset.'
+          fi
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: steps.signing.outputs.enabled == 'true'
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@d698718aa798980d17dd749f03beae0b51183399 # v31
+        if: steps.signing.outputs.enabled == 'true'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: steps.signing.outputs.enabled == 'true'
+        with:
+          name: nix-cache
+          path: ${{ runner.temp }}/nix-cache
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.nix_cache_from_run || github.run_id }}
+      - name: Sign and publish NARs and index
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}
+          NIX_CACHE_SIGNING_KEY: ${{ secrets.NIX_CACHE_SIGNING_KEY }}
+        run: |
+          python3 scripts/nix-cache.py publish "$RUNNER_TEMP/nix-cache" \
+            --repository "$PACKAGE_REPOSITORY" --tag "nix-cache-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
