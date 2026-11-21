@@ -16,7 +16,7 @@ from urllib.parse import quote
 from urllib.request import urlopen
 
 OFFICIAL = "https://cache.nixos.org"
-BRANCH = "nix-repodata"
+INDEX_TAG = "nix-cache-index"
 STORE_PATH = re.compile(r"/nix/store/([0-9a-z]{32})-[^/\s]+")
 CACHE_ASSET = re.compile(r"nar/[0-9a-z]+\.nar(?:\.[a-z0-9]+)?")
 IMAGES = re.compile(r"-zhiyu-(?:boot|vendor-boot|init-boot|vbmeta|images)$")
@@ -173,12 +173,8 @@ def publish(directory, repository, tag, secret):
         else:
             pending.append((nar, digest))
     if pending:
-        repo = json.loads(run("gh", "api", f"repos/{repository}"))
-        # The tag labels cache storage only. Target the current default
-        # branch by name even when publishing an artifact from an older run.
         if not any(release["tag_name"] == tag for release in gh_api_pages(f"repos/{repository}/releases")):
-            run("gh", "release", "create", tag, "--repo", repository, "--target", repo["default_branch"],
-                "--title", f"Nix cache {tag}", "--latest=false", "--notes", "Content-addressed NAR storage.")
+            create_release(repository, tag, f"Zhiyu NARs {tag}")
         for nar, _ in pending:
             run("gh", "release", "upload", tag, str(nar), "--repo", repository)
         release = json.loads(run("gh", "api", f"repos/{repository}/releases/tags/{quote(tag)}"))
@@ -189,40 +185,61 @@ def publish(directory, repository, tag, secret):
                     f"Upload verification failed: {nar.name}")
             nar_urls[nar.name] = asset["browser_download_url"]
 
+    publish_index(directory, repository, entries, nar_urls)
+
+
+def publish_index(directory, repository, entries, nar_urls):
+    releases = gh_api_pages(f"repos/{repository}/releases")
+    release = next((item for item in releases if item["tag_name"] == INDEX_TAG), None)
+    existing = {}
+    if release:
+        require(not release["draft"], "The Nix cache index Release must be public")
+        assets = gh_api_pages(f"repos/{repository}/releases/{release['id']}/assets")
+        existing = {a["name"]: a for a in assets if a["state"] == "uploaded"}
+
     with TemporaryDirectory(prefix="zhiyu-cache-index-") as temp:
-        tree = Path(temp)
-        git = lambda *args: run("git", *args, cwd=tree)
-        git("init", "-q")
-        git("remote", "add", "origin", f"https://github.com/{repository}.git")
-        check = subprocess.run(["git", "ls-remote", "--exit-code", "--heads", "origin", BRANCH], cwd=tree)
-        if check.returncode == 0:
-            git("fetch", "--depth=1", "origin", BRANCH)
-            git("checkout", "-q", "-b", BRANCH, "FETCH_HEAD")
-        else:
-            require(check.returncode == 2, "Could not check the existing cache index")
-            git("checkout", "--orphan", BRANCH)
-        (tree / "nix-cache-info").write_text((directory / "nix-cache-info").read_text())
-        for info, _, nar in entries:
-            contents = info.read_text()
-            contents, count = re.subn(r"^URL: .*?$", "URL: " + nar_urls[nar.name], contents, flags=re.M)
+        target = Path(temp)
+        changed = []
+        for info, meta, nar in entries:
+            contents, count = re.subn(r"^URL: .*?$", "URL: " + nar_urls[nar.name],
+                                      info.read_text(), flags=re.M)
             require(count == 1, f"Invalid URL in {info.name}")
-            dest = tree / info.name
-            if dest.exists():
-                previous = dest.read_text()
-                old, new = fields(previous), fields(contents)
+            if info.name in existing:
+                asset = existing[info.name]
+                with urlopen(asset["browser_download_url"], timeout=60) as response:
+                    previous = response.read(64 * 1024).decode()
+                old = fields(previous)
                 for field in ("StorePath", "NarHash", "NarSize", "References"):
-                    require(old.get(field) == new.get(field), f"Conflicting {field} for {info.name}")
+                    require(old.get(field) == meta.get(field), f"Conflicting {field} for {info.name}")
                 signatures = {line for line in contents.splitlines() if line.startswith("Sig: ")}
                 for line in previous.splitlines():
                     if line.startswith("Sig: ") and line not in signatures:
                         contents += line + "\n"
+                if previous == contents:
+                    continue
+            dest = target / info.name
             dest.write_text(contents)
-        git("add", "--", "nix-cache-info", "*.narinfo")
-        if git("status", "--porcelain"):
-            git("-c", "user.name=github-actions[bot]", "-c", "user.email=41898282+github-actions[bot]@users.noreply.github.com",
-                "commit", "-m", f"Nix cache {tag}")
-            git("push", "origin", f"HEAD:refs/heads/{BRANCH}")
-    print(f"Substituter: https://raw.githubusercontent.com/{repository}/{BRANCH}")
+            changed.append(dest)
+
+        config = directory / "nix-cache-info"
+        if config.name not in existing or not matches(existing[config.name], config, file_digest(config)):
+            changed.append(config)
+        if not release:
+            create_release(repository, INDEX_TAG, "Zhiyu Nix binary cache index", *changed)
+        elif changed:
+            require(len(set(existing) | {p.name for p in changed}) <= 1000,
+                    "The Nix cache index Release reached GitHub's 1000-asset limit")
+            run("gh", "release", "upload", INDEX_TAG, *(str(p) for p in changed),
+                "--clobber", "--repo", repository)
+    print(f"Substituter: https://github.com/{repository}/releases/download/{INDEX_TAG}/")
+
+
+def create_release(repository, tag, title, *files):
+    repo = json.loads(run("gh", "api", f"repos/{repository}"))
+    run("gh", "release", "create", tag, *(str(p) for p in files),
+        "--repo", repository, "--target", repo["default_branch"],
+        "--title", title, "--prerelease", "--latest=false",
+        "--notes", "Zhiyu binary cache for Nix.")
 
 
 def main():

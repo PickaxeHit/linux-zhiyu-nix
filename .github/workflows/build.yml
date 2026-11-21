@@ -290,3 +290,5 @@ jobs:
       actions: read
       contents: write
     uses: ./.github/workflows/publish.yml
+    secrets:
+      PACKAGE_PUBLISH_TOKEN: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}

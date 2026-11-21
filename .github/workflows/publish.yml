@@ -3,6 +3,9 @@ run-name: Publish package repositories
 
 on:
   workflow_call:
+    secrets:
+      PACKAGE_PUBLISH_TOKEN:
+        required: false
   workflow_dispatch:
     inputs:
       build_run:
@@ -23,6 +26,9 @@ permissions:
 
 concurrency:
   group: publish-package-repositories
+
+env:
+  PACKAGE_REPOSITORY: PickaxeHit/linux-zhiyu-pkgs
 
 jobs:
   publish:
@@ -114,9 +120,10 @@ jobs:
 
       - name: Generate indexes and publish package sources
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}
         run: |
           set -euo pipefail
+          : "${GH_TOKEN:?Set PACKAGE_PUBLISH_TOKEN with write access to the package repository}"
           scripts/mkrepos.sh debian out/pkgs out/repositories
           scripts/mkrepos.sh archlinuxarm out/pkgs out/repositories
           for distro in debian archlinuxarm; do
@@ -143,25 +150,25 @@ jobs:
             # Rolling repository tags are created on the default branch, not on
             # an older build SHA (GITHUB_TOKEN cannot always create such refs).
             notes="Flat package repository for Lenovo TB378FC. Build commit: $build_sha. Use the release download URL as the repository base."
-            if gh release view "$tag" >/dev/null 2>&1; then
+            if gh release view "$tag" --repo "$PACKAGE_REPOSITORY" >/dev/null 2>&1; then
               # Save the previous asset names before uploading. Prune only after
               # the new indexes are live so they always have matching packages.
-              previous=$(gh release view "$tag" --json assets --jq '.assets[].name')
-              gh release upload "$tag" "${packages[@]}" --clobber
-              gh release upload "$tag" "${indexes[@]}" --clobber
+              previous=$(gh release view "$tag" --repo "$PACKAGE_REPOSITORY" --json assets --jq '.assets[].name')
+              gh release upload "$tag" --repo "$PACKAGE_REPOSITORY" "${packages[@]}" --clobber
+              gh release upload "$tag" --repo "$PACKAGE_REPOSITORY" "${indexes[@]}" --clobber
               printf '%s\n' "${packages[@]##*/}" > "$dir/current-packages"
               while IFS= read -r asset; do
                 case "$asset" in
                   *"$package_suffix")
                     if ! grep -Fxq -- "$asset" "$dir/current-packages"; then
-                      gh release delete-asset "$tag" "$asset" --yes
+                      gh release delete-asset "$tag" --repo "$PACKAGE_REPOSITORY" "$asset" --yes
                     fi
                     ;;
                 esac
               done <<< "$previous"
-              gh release edit "$tag" --prerelease=false --latest=false --notes "$notes"
+              gh release edit "$tag" --repo "$PACKAGE_REPOSITORY" --prerelease=false --latest=false --notes "$notes"
             else
-              gh release create "$tag" "${packages[@]}" "${indexes[@]}" \
+              gh release create "$tag" --repo "$PACKAGE_REPOSITORY" "${packages[@]}" "${indexes[@]}" \
                 --latest=false \
                 --title "Zhiyu $distro nightly repository" \
                 --notes "$notes"
@@ -198,7 +205,7 @@ jobs:
       - name: Publish Fedora RPM repository
         if: hashFiles('out/fedora-rpms/*.rpm') != ''
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}
         run: |
           sudo apt-get install -y createrepo-c
           scripts/publish-fedora-rpms.sh out/fedora-rpms "$build_sha"

@@ -151,6 +151,14 @@ cmdline 和 LSM 在本地生成。内核源码归档、编译器、Cargo vendor 
 临时构建目录仅在需要编译时获取。同一组输出也能通过标准 `nix copy` 发布
 到 S3 兼容的 Nix 缓存。
 
+Debian、Arch Linux ARM、Fedora 和 Nix 的软件包统一发布到
+[`linux-zhiyu-pkgs`](https://github.com/PickaxeHit/linux-zhiyu-pkgs)，各自的
+客户端地址见该仓库 README。独立启动镜像继续由 BSP 提供。
+
+发布 workflow 需要源码仓的 Actions secret `PACKAGE_PUBLISH_TOKEN`，
+使用一个只对包仓拥有 Contents read/write 的 fine-grained PAT。
+构建产物仍使用当前源码仓的 Actions token 拉取。
+
 维护者可运行下列命令生成自己的缓存密钥。将私钥写入 Actions secret
 `NIX_CACHE_SIGNING_KEY`，将公开密钥写入 Actions variable
 `NIX_CACHE_PUBLIC_KEY` 并分发给使用者。私钥文件应置于仓库和 Nix store
@@ -163,7 +171,7 @@ nix key convert-secret-to-public < /secure/path/zhiyu-cache.key
 ```
 
 在默认分支手动运行 workflow 并选中 `publish_cache`。发布步骤先上传并
-验证 GitHub Release 中的 NAR，再合并 `nix-repodata` 上的索引。
+验证独立包仓库 Release 中的 NAR，再增量更新 `nix-cache-index` Release。
 发布失败时，可填原任务的 `cache_from_run` 重试仍有效的 artifact。
 缺少 secret 时构建和校验仍可运行。消费者配置如下，其中公开密钥使用
 维护者提供的实际值。
@@ -171,11 +179,10 @@ nix key convert-secret-to-public < /secure/path/zhiyu-cache.key
 ```nix
 {
   nix.settings = {
-    extra-substituters = [ "https://raw.githubusercontent.com/PickaxeHit/linux-zhiyu-nix/nix-repodata" ];
+    extra-substituters = [ "https://github.com/PickaxeHit/linux-zhiyu-pkgs/releases/download/nix-cache-index/" ];
     extra-trusted-public-keys = [ "<维护者提供的公开密钥>" ];
   };
 }
 ```
 
-BSP 消费者在自己的 `flake.lock` 里固定通过验证的提交。二进制缓存使用独立的
-`nix-repodata` 索引。
+BSP 消费者在自己的 `flake.lock` 里固定通过验证的提交。二进制缓存索引累积保留已经发布的 store path。
