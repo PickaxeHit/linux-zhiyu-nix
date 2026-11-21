@@ -17,6 +17,7 @@ def require(condition, message):
 
 root, release = Path(sys.argv[1]), sys.argv[2]
 bin_dir = root / "bin"
+require((root / "etc/zhiyu-strict-boot").is_file(), "Missing strict userdata boot policy")
 applets = set(output(bin_dir / "busybox", "--list").splitlines())
 required = {
     "busybox", "fsck.f2fs", "zhiyu-boot-select", "userdata-map", "keymint-recover",

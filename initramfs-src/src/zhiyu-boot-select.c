@@ -1,4 +1,5 @@
-/* Select a NixOS generation matching BOTH boot artifacts, from initramfs.
+/* Match both Boot IDs for normal NixOS boot. SD rescue prefers FHS init
+ * and may use any executable NixOS generation.
  * All target-root opens use openat2 so absolute Nix Store symlinks resolve
  * inside the mounted root, not inside the ramdisk. No writes are performed. */
 #define _GNU_SOURCE
@@ -107,13 +108,12 @@ static int resolve_profile(const char *name, char out[PATH_MAX])
     }
     return -1;
 }
-static int match(const char *name, char out[PATH_MAX])
+static int generation_matches(const char *sys)
 {
-    char sys[PATH_MAX], path[PATH_MAX], a[65], b[65], extra;
+    char path[PATH_MAX], a[65], b[65], extra;
     struct stat st;
     FILE *f;
     int fd, n, ok;
-    if (resolve_profile(name,sys)) return 0;
     n=snprintf(path,sizeof(path),"%s/etc/zhiyu/boot-id",sys);
     if (n<0 || n>=(int)sizeof(path)) return 0;
     fd=rooted_open(path,O_RDONLY|O_NONBLOCK);
@@ -123,17 +123,27 @@ static int match(const char *name, char out[PATH_MAX])
     if (!f) { close(fd); return 0; }
     ok=fscanf(f,"%64s %64s %c",a,b,&extra)==2 && !ferror(f) && !strcmp(a,kid) && !strcmp(b,vid);
     fclose(f);
-    if (!ok) return 0;
-    n=snprintf(path,sizeof(path),"%s/init",sys);
-    if (n<0 || n>=(int)sizeof(path)) return 0;
-    fd=rooted_open(path,O_PATH);
-    if (fd<0) return 0;
-    ok=!fstat(fd,&st) && S_ISREG(st.st_mode) && (st.st_mode & 0111);
-    close(fd);
-    if (!ok) return 0;
-    strcpy(out,path);
-    return 1;
+    return ok;
 }
+
+static int executable_init(const char *path)
+{
+    struct stat st;
+    int fd=rooted_open(path,O_PATH);
+    if (fd<0) return 0;
+    int ok=!fstat(fd,&st) && S_ISREG(st.st_mode) && (st.st_mode & 0111);
+    close(fd);
+    return ok;
+}
+
+static int select_profile(const char *name, char out[PATH_MAX], int rescue)
+{
+    char sys[PATH_MAX];
+    if (resolve_profile(name,sys) || (!rescue && !generation_matches(sys))) return 0;
+    int n=snprintf(out,PATH_MAX,"%s/init",sys);
+    return n>=0 && n<PATH_MAX && executable_init(out);
+}
+
 static unsigned long long generation(const char *name)
 {
     const char *p;
@@ -149,7 +159,8 @@ static unsigned long long generation(const char *name)
 int main(int argc, char **argv)
 {
     /* Explicit paths are for tests; boot calls this with the default paths. */
-    const char *root=argc==4?argv[1]:"/newroot";
+    int rescue=argc>1 && !strcmp(argv[1],"--sd-rescue");
+    const char *root="/newroot";
     const char *cmd=argc==4?argv[2]:"/proc/cmdline";
     const char *bc=argc==4?argv[3]:"/proc/bootconfig";
     const char *preferred[]={"system","zhiyu-boot","zhiyu-pending"};
@@ -157,22 +168,30 @@ int main(int argc, char **argv)
     DIR *dir;
     struct dirent *ent;
     unsigned long long best=0;
-    if (argc!=1 && argc!=4) return 2;
-    if (read_ids(cmd,bc)) { fprintf(stderr,"zhiyu-boot-select: missing, malformed or duplicate boot IDs\n"); return 1; }
+    if (rescue) {
+        if (argc>3) return 2;
+        if (argc==3) root=argv[2];
+    } else {
+        if (argc!=1 && argc!=4) return 2;
+        if (argc==4) root=argv[1];
+    }
+    if (!rescue && read_ids(cmd,bc)) { fprintf(stderr,"zhiyu-boot-select: missing, malformed or duplicate boot IDs\n"); return 1; }
     rootfd=open(root,O_PATH|O_DIRECTORY|O_CLOEXEC);
     if (rootfd<0) { perror(root); return 1; }
+    if (rescue && executable_init("/sbin/init")) { puts("/sbin/init"); return 0; }
     profd=rooted_open(PROFILES,O_RDONLY|O_DIRECTORY);
     if (profd<0) { perror(PROFILES); return 1; }
     for (size_t i=0;i<sizeof(preferred)/sizeof(preferred[0]);++i)
-        if (match(preferred[i],selected)) { puts(selected); return 0; }
+        if (select_profile(preferred[i],selected,rescue)) { puts(selected); return 0; }
     dir=fdopendir(dup(profd));
     if (!dir) { perror("fdopendir"); return 1; }
     while ((ent=readdir(dir))) {
         unsigned long long n=generation(ent->d_name);
-        if (n>best && match(ent->d_name,candidate)) { best=n; strcpy(selected,candidate); }
+        if (n>best && select_profile(ent->d_name,candidate,rescue)) { best=n; strcpy(selected,candidate); }
     }
     closedir(dir);
     if (best) { puts(selected); return 0; }
-    fprintf(stderr,"zhiyu-boot-select: no generation matches kernel/vendor IDs; refusing NixOS switch_root\n");
+    fprintf(stderr,"zhiyu-boot-select: %s\n", rescue ? "no executable FHS or NixOS rescue init" :
+            "no generation matches kernel/vendor IDs; refusing NixOS switch_root");
     return 1;
 }

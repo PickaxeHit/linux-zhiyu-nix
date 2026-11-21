@@ -26,6 +26,40 @@ def generation(root, name, ids):
     return path, actual
 
 
+def test_rescue(root, selector):
+    init = root / "usr/lib/systemd/systemd"
+    write(init, "#!/bin/sh\n")
+    init.chmod(0o755)
+    fhs = root / "sbin/init"
+    fhs.parent.mkdir()
+    fhs.symlink_to("/usr/lib/systemd/systemd")
+    rescue = (selector, "--sd-rescue", root)
+    assert run(*rescue).strip() == "/sbin/init"
+
+    profiles = root / "nix/var/nix/profiles"
+    profiles.mkdir(parents=True)
+    current, current_path = generation(root, "rescue-current", "unused\n")
+    fallback, _ = generation(root, "rescue-fallback", "unused\n")
+    (profiles / "system").symlink_to("system-7-link")
+    (profiles / "system-7-link").symlink_to(current)
+    (profiles / "system-6-link").symlink_to(fallback)
+    (current_path / "etc/zhiyu/boot-id").unlink()
+    assert run(*rescue).strip() == "/sbin/init"
+
+    init.chmod(0o644)
+    assert run(*rescue).strip() == str(current / "init")
+    (current_path / "init").unlink()
+    assert run(*rescue).strip() == str(fallback / "init")
+
+    cmdline = root / "cmdline"
+    bootconfig = root / "bootconfig"
+    write(cmdline, "zhiyu.kernel_id=" + "a" * 64 + "\n")
+    write(bootconfig, 'zhiyu.vendor_id = "' + "b" * 64 + '"\n')
+    run(selector, root, cmdline, bootconfig, fails=True)
+    (profiles / "system-6-link").unlink()
+    run(*rescue, fails=True)
+
+
 def test(root, selector, flasher, production):
     ids = "a" * 64 + " " + "b" * 64 + "\n"
     kernel, vendor = ids.split()
@@ -142,4 +176,6 @@ def test(root, selector, flasher, production):
 
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as directory:
-        test(Path(directory), *sys.argv[1:])
+        root = Path(directory)
+        test(root, *sys.argv[1:])
+        test_rescue(root / "rescue", sys.argv[1])

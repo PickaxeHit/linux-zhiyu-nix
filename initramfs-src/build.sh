@@ -62,6 +62,7 @@ done < "$here/busybox-applets.txt"
 CC_AARCH64=${CC_AARCH64:-${CROSS_COMPILE-aarch64-linux-gnu-}gcc}
 if [ "${PREBUILT:-0}" = 1 ]; then
 	install -m 0755 "$STATIC_HELPERS"/bin/* "$stage/bin/"
+	touch "$stage/etc/zhiyu-strict-boot"
 else
 for src in "$here"/src/*.c; do
 	[ "$(basename "$src")" != userdata-map.c ] || continue

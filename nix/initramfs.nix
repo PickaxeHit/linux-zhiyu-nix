@@ -50,7 +50,7 @@ let
       mkdir -p "$out/bin"
       cp ${../initramfs-src/src/btaddr.c} btaddr.c
       cp ${../initramfs-src/src/charger.c} charger.c
-      cp ${./boot-select.c} zhiyu-boot-select.c
+      cp ${../initramfs-src/src/zhiyu-boot-select.c} zhiyu-boot-select.c
       for helper in btaddr charger zhiyu-boot-select; do
         $CC -static -Os -Wall -Wextra -Werror "$helper.c" -o "$out/bin/$helper"
       done
