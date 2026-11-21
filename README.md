@@ -65,16 +65,15 @@ https://github.com/KunBuFenZi/progt13-ubuntu
 
 Flake 使用原生 `aarch64-linux` 构建。在 x86_64 Linux 上可求值，或通过
 [Nix remote builder](https://nix.dev/manual/nix/latest/advanced-topics/distributed-builds.html)
-把构建交给 ARM64 主机。求值无需初始化子模块。日常使用可选择由 CI 发布的 `nix-stable` 分支，
-其中包含构建所需源码以及自动生成的 `SOURCE-COMMITS.md`，记录主仓、内核、
-libcamera、外部依赖和 nixpkgs 的完整提交。
+把构建交给 ARM64 主机。求值无需初始化子模块。测试期间使用 `github:PickaxeHit/linux-zhiyu-nix/nix-full`，
+正式合并后使用 `github:PickaxeHit/linux-zhiyu-next`。可用 Git tag 或完整提交固定 BSP 版本。
 
 ```bash
-nix flake show github:PickaxeHit/linux-zhiyu-next/nix-stable --all-systems
-nix build github:PickaxeHit/linux-zhiyu-next/nix-stable#kernel
-nix build 'github:PickaxeHit/linux-zhiyu-next/nix-stable#kernel^dev,modules'
-nix build github:PickaxeHit/linux-zhiyu-next/nix-stable#initramfs
-nix build github:PickaxeHit/linux-zhiyu-next/nix-stable#zhiyu-images
+nix flake show github:PickaxeHit/linux-zhiyu-nix/nix-full --all-systems
+nix build github:PickaxeHit/linux-zhiyu-nix/nix-full#kernel
+nix build 'github:PickaxeHit/linux-zhiyu-nix/nix-full#kernel^dev,modules'
+nix build github:PickaxeHit/linux-zhiyu-nix/nix-full#initramfs
+nix build github:PickaxeHit/linux-zhiyu-nix/nix-full#zhiyu-images
 ```
 
 `zhiyu-images` 包含四个分区镜像、大小和 SHA-256 清单。可单独构建
@@ -91,52 +90,23 @@ Android 15 工具。BusyBox、F2FS 和 KeyMint 的静态依赖由两个后端共
 早期启动程序以 musl 静态链接，ramdisk 由传统构建也使用的脚本组装。
 固件、AudioReach topology、SNS 配置、UCM2 和用户态硬件支持都有独立输出。
 
-#### NixOS 安装与更新
+#### NixOS 硬件模块
 
-在自己的 Flake 中引用 BSP。以下示例选择锁内的 nixpkgs，也可以选用 libcamera
-ABI 为 0.7 或 0.8 的其他 nixpkgs 版本。设备 overlay 会让 PipeWire 等消费者
-从源码链接到对应 ABI 的 Zhiyu fork。需要原版 libcamera 时设
-`zhiyu.camera.enable = false`。
+[NixOS Rootfs Builder](https://github.com/PickaxeHit/linux-zhiyu-rootfs-builder-test)
+负责系统配置、rootfs 和同一 generation 的四个启动镜像。自建系统也可导入
+BSP Flake 的 `nixosModules.default`，设置 `zhiyu.enable = true`，并统一两边的
+nixpkgs input。模块将匹配镜像导出为 `system.build.zhiyuImages`。
 
-```nix
-{
-  inputs.zhiyu.url = "github:PickaxeHit/linux-zhiyu-next/nix-stable";
-  inputs.nixpkgs.follows = "zhiyu/nixpkgs";
+首次安装后，同一套启动镜像由 Bootloader 从为 Linux 预留的槽位加载。
+在已经运行的 Zhiyu NixOS 上，可以用原生工具检查或安装显式指定的 generation：
 
-  outputs = { nixpkgs, zhiyu, ... }: {
-    nixosConfigurations.tablet = nixpkgs.lib.nixosSystem {
-      system = "aarch64-linux";
-      modules = [
-        zhiyu.nixosModules.default
-        ./configuration.nix
-      ];
-    };
-  };
-}
+```bash
+sudo zhiyu-install --dry-run --expect-slot b /nix/var/nix/profiles/system
 ```
 
-在 `configuration.nix` 设置 `zhiyu.enable = true`，并配置根文件系统、
-主机名和用户。`nix/example.nix` 是 ext4 microSD 示例，其根分区为
-`/dev/mmcblk0p1`，`boot.kernelParams` 包含 `zhiyu.root=sd`。
-Android userdata 方案把根目录放在 `/data/linux`，移除 `zhiyu.root=sd`，
-并按实际设备配置 F2FS 根。使用 metadata encryption 时早期启动会建立
-`/dev/mapper/android-data-root`。设备模块默认安装 Qualcomm Iris VA-API
-驱动，可通过 `zhiyu.videoAcceleration = false` 禁用。传感器 registry 位于
-`/var/lib/zhiyu-qcom/sensors/registry`。
-
-1. 将根文件系统挂到 `/mnt` 后执行
-   `nixos-install --flake .#tablet --root /mnt --no-bootloader`。
-   这会建立根文件系统中的 NixOS system profile。
-2. 构建该 generation 对应的镜像。
-   `nix build .#nixosConfigurations.tablet.config.system.build.zhiyuImages`。
-   首次刷写使用上文的 Android 底包和 fastboot 流程，把四个镜像作为一组刷入
-   为 Linux 预留的 slot。默认的独立 `#zhiyu-images` 使用通用参数。
-3. 在运行的 Zhiyu NixOS 上，先执行
-   `sudo zhiyu-install --dry-run --expect-slot b /nix/var/nix/profiles/system`，
-   其中 `b` 应替换为 Linux 正在运行的 slot。需要安装时去掉 `--dry-run`。
-   若明确启用了 `zhiyu.flashOnSwitch`，`nixos-rebuild boot` 和
-   `nixos-rebuild switch` 会通过 NixOS external bootloader 调用同一个工具。
-   确认系统正常启动后，可用 `sudo qbootctl -m` 标记该 slot 启动成功。
+将 `b` 替换为当前 Linux 槽位，验证完成后去掉 `--dry-run` 执行写入。
+`zhiyu.flashOnSwitch` 默认关闭。启用它后，`nixos-rebuild boot` 和
+`nixos-rebuild switch` 会通过 external bootloader 调用同一个工具。
 
 `boot.kernelParams` 进入 boot.img，`zhiyu.bootconfig` 进入 vendor_boot.img。
 早期启动同时核对内核及模块的构建标识，以及 DTB、ramdisk、bootconfig 的
@@ -172,8 +142,7 @@ GitHub 归档使用解包目录的递归哈希，Git fetcher 使用
 #### CI 和二进制缓存
 
 `Nix BSP` workflow 单独验证版本锁、Flake、外部模块、启动工具和四个镜像，
-并检查 NixOS 使用的 kernel、firmware 和 initramfs 与独立包一致。可在手动
-构建时启用 `build_nixos` 验证示例最小系统。
+并通过模块求值检查 NixOS 使用的 kernel、firmware 和 initramfs 与独立包一致。
 
 缓存包含 kernel、modules、外部模块用的开发树、DTB、initramfs、固件、
 设备用户态及可独立重用的早期工具。发布使用这些输出的运行时闭包，跳过
@@ -208,7 +177,5 @@ nix key convert-secret-to-public < /secure/path/zhiyu-cache.key
 }
 ```
 
-维护者在 `main` 更新源码和锁文件。默认分支的 Nix CI 验证通过后，
-会自动为 `nix-stable` 追加精简快照和版本表。消费者可引用
-`github:PickaxeHit/linux-zhiyu-next/nix-stable`，由自己的 `flake.lock` 固定快照。
-`nix-repodata` 继续提供独立的二进制缓存索引。
+BSP 消费者在自己的 `flake.lock` 里固定通过验证的提交。二进制缓存使用独立的
+`nix-repodata` 索引。

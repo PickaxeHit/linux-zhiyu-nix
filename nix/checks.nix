@@ -8,6 +8,7 @@ let
   kernel = cfg.boot.kernelPackages.kernel;
   imagesWithCmdline = pkgs.zhiyu.mkImages p.kernel { kernelParams = [ "lsm=landlock,yama" ]; };
   image = imagesWithCmdline.packages;
+  simulator = pkgs.callPackage ./flasher.nix { simulate = true; };
 in
 {
   inherit (p)
@@ -41,6 +42,8 @@ in
     assert cfg.system.build.zhiyuFirmware.drvPath == p.firmware.drvPath;
     assert cfg.system.build.zhiyuInitramfs.drvPath == p.initramfs.drvPath;
     assert cfg.system.build.zhiyuImages.drvPath != p.zhiyu-images.drvPath;
+    assert !cfg.zhiyu.flashOnSwitch;
+    assert cfg.boot.loader.external.installHook == "${cfg.system.build.installBootLoader}";
     assert image.zhiyu-boot.drvPath != p.zhiyu-boot.drvPath;
     assert image.zhiyu-vendor-boot.drvPath == p.zhiyu-vendor-boot.drvPath;
     assert image.zhiyu-init-boot.drvPath == p.zhiyu-init-boot.drvPath;
@@ -53,9 +56,11 @@ in
     runCommand "zhiyu-boot-tools-test"
       {
         nativeBuildInputs = [ pkgs.python3 ];
+        passthru = { inherit simulator; };
       }
       ''
-        python3 ${./test-boot.py} ${p.static-helpers}/bin/zhiyu-boot-select ${./flash.py}
+        python3 ${./test-boot.py} ${p.static-helpers}/bin/zhiyu-boot-select \
+          ${simulator}/bin/zhiyu-install ${p.flasher}/bin/zhiyu-install
         touch "$out"
       '';
 }

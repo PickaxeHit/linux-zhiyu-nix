@@ -49,12 +49,7 @@ let
         base = cameraBase;
         source = sources."libcamera/0.8";
       };
-      flasher = pkgs.writeShellApplication {
-        name = "zhiyu-install";
-        text = ''
-          exec ${pkgs.python3}/bin/python3 ${./flash.py} "$@"
-        '';
-      };
+      flasher = pkgs.callPackage ./flasher.nix { };
       default = defaultImages.zhiyu-images;
     };
 in

@@ -26,11 +26,11 @@ def generation(root, name, ids):
     return path, actual
 
 
-def test(root, selector, flasher):
+def test(root, selector, flasher, production):
     ids = "a" * 64 + " " + "b" * 64 + "\n"
     kernel, vendor = ids.split()
     old_ids = "c" * 64 + " " + vendor + "\n"
-    old, _ = generation(root, "old", old_ids)
+    old, old_path = generation(root, "old", old_ids)
     previous, _ = generation(root, "previous", ids)
     new, actual = generation(root, "current", ids)
     pending, _ = generation(root, "pending", ids)
@@ -88,7 +88,10 @@ def test(root, selector, flasher):
     sums = images / "SHA256SUMS"
     write(sums, "\n".join(hashes))
     write(images / "SIZES", "\n".join(sizes))
-    command = (sys.executable, flasher, "--simulate", root, actual)
+    command = (flasher, "--simulate", root, actual)
+    assert "unknown option" in subprocess.run(
+        [production, "--simulate", root, actual], capture_output=True, text=True
+    ).stderr
     assert run(*command, "--dry-run").count("would write") == len(parts)
     run(*command, "--expect-slot", "a", fails=True)
     compatible.write_bytes(b"not-a-zhiyu\0")
@@ -109,11 +112,32 @@ def test(root, selector, flasher):
     write(sums, "\n".join(hashes))
     run(*command, "--expect-slot", "b")
     assert not (profiles / "zhiyu-pending").is_symlink()
-    assert (profiles / "zhiyu-boot").readlink() == actual
+    assert (profiles / "zhiyu-boot").readlink() == new
     assert run(*command).count("unchanged") == len(parts)
     for part in parts:
         with (root / "partitions" / f"{part}_a").open("rb") as file:
             assert file.read(4) == bytes(4)
+
+    # Roll back to another generation with a different kernel ID and image.
+    old_images = old_path / "etc/zhiyu/boot-images"
+    write(old_images / "BOOT-IDS", old_ids)
+    for part, size in parts.items():
+        image = old_images / f"{part}.img"
+        with image.open("wb") as file:
+            file.write(b"old" if part == "boot" else part.encode())
+            file.truncate(size)
+    old_sums = []
+    for part in parts:
+        name = f"{part}.img"
+        with (old_images / name).open("rb") as file:
+            old_sums.append(f"{hashlib.file_digest(file, 'sha256').hexdigest()}  {name}")
+    write(old_images / "SHA256SUMS", "\n".join(old_sums))
+    write(old_images / "SIZES", "\n".join(sizes))
+    result = run(flasher, "--simulate", root, old_path)
+    assert "complete (1 written)" in result
+    assert (profiles / "zhiyu-boot").readlink() == old
+    write(cmdline, good.replace(kernel, "c" * 64))
+    assert run(selector, root, cmdline, bootconfig).strip() == str(old / "init")
 
 
 if __name__ == "__main__":
