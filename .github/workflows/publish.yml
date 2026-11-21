@@ -22,13 +22,6 @@ on:
       nix_cache_from_run:
         description: Build images and packages run ID for a retained Nix cache artifact (default branch only)
         type: string
-  # Retry publishing retained build artifacts without rebuilding, via a
-  # publish-packages-<run_id> branch or tag (or workflow_dispatch).
-  push:
-    branches:
-      - 'publish-packages-*'
-    tags:
-      - 'publish-packages-*'
 
 permissions:
   actions: read
@@ -55,7 +48,7 @@ jobs:
 
   publish:
     name: Publish package repositories and images
-    if: inputs.publish_packages || inputs.build_run != '' || startsWith(github.ref_name, 'publish-packages-')
+    if: inputs.publish_packages || inputs.build_run != ''
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -70,12 +63,6 @@ jobs:
         run: |
           set -euo pipefail
           run_id="$BUILD_RUN"
-          retry_ref=false
-          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF_NAME" == publish-packages-* ]]; then
-            retry_ref=true
-            run_id="${GITHUB_REF_NAME#publish-packages-}"
-            [[ "$run_id" =~ ^[0-9]+$ ]]
-          fi
           if [[ -z "$run_id" ]]; then
             # A reusable call can download from its own run after the build
             # job succeeds, while the overall workflow is still running.
@@ -95,9 +82,6 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs" |
             jq -e 'any(.jobs[]; .name == "build" and .conclusion == "success")' >/dev/null
           build_sha=$(jq -r .head_sha <<< "$build")
-          if [[ "$retry_ref" == true ]]; then
-            git merge-base --is-ancestor "$build_sha" "$GITHUB_SHA"
-          fi
           printf "build_sha=%s\nsource_run=%s\n" "$build_sha" "$run_id" >> "$GITHUB_ENV"
           gh run download "$run_id" --name zhiyu-package-repositories-input --dir out/pkgs
           gh run download "$run_id" --name zhiyu-images --dir out/image-archive
@@ -141,6 +125,31 @@ jobs:
           for image in boot vendor_boot init_boot vbmeta; do
             test -s "$image.img"
           done
+
+      - name: Publish signed boot images
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=zhiyu-images
+          images=(out/release-images/*.img)
+          if [ -f out/release-images/LICENSES.tar.gz ]; then
+            images+=(out/release-images/LICENSES.tar.gz)
+          fi
+          if [ -f out/release-images/manifest.json ]; then
+            images+=(out/release-images/manifest.json)
+          fi
+          checksums=out/release-images/SHA256SUMS
+          printf 'Lenovo TB378FC signed boot images. Build commit: %s. Verify the files against SHA256SUMS before installing.\n' "$build_sha" > image-release-notes.md
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "${images[@]}" --clobber
+            gh release upload "$tag" "$checksums" --clobber
+            gh release edit "$tag" --prerelease=false --latest --notes-file image-release-notes.md
+          else
+            gh release create "$tag" "${images[@]}" "$checksums" \
+              --latest \
+              --title "Zhiyu signed boot images" --notes-file image-release-notes.md
+          fi
 
       - name: Generate indexes and publish package sources
         env:
@@ -204,32 +213,6 @@ jobs:
           done
 
 
-      - name: Publish signed boot images
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          tag=zhiyu-images
-          images=(out/release-images/*.img)
-          if [ -f out/release-images/LICENSES.tar.gz ]; then
-            images+=(out/release-images/LICENSES.tar.gz)
-          fi
-          if [ -f out/release-images/manifest.json ]; then
-            images+=(out/release-images/manifest.json)
-          fi
-          checksums=out/release-images/SHA256SUMS
-          printf 'Lenovo TB378FC signed boot images. Build commit: %s. Verify the files against SHA256SUMS before installing.\n' "$build_sha" > image-release-notes.md
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" "${images[@]}" --clobber
-            gh release upload "$tag" "$checksums" --clobber
-            gh release edit "$tag" --prerelease=false --latest --notes-file image-release-notes.md
-          else
-            gh release create "$tag" "${images[@]}" "$checksums" \
-              --latest \
-              --title "Zhiyu signed boot images" --notes-file image-release-notes.md
-          fi
-
-
       - name: Publish Fedora RPM repository
         if: hashFiles('out/fedora-rpms/*.rpm') != ''
         env:
@@ -268,7 +251,8 @@ jobs:
           gh api "$endpoint" | jq -e --arg repo "$GITHUB_REPOSITORY" --arg branch "$DEFAULT_BRANCH" '
             .head_repository.full_name == $repo and .head_branch == $branch
             and (.path == ".github/workflows/nix.yml" or .path == ".github/workflows/build.yml")
-            and .event == "workflow_dispatch"
+            and (.event == "workflow_dispatch" or
+              (.event == "push" and .head_branch == "main" and .path == ".github/workflows/build.yml"))
           '
           gh api --paginate --slurp "$endpoint/jobs?per_page=100" |
             jq -e 'any(.[].jobs[]; .conclusion == "success" and

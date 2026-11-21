@@ -20,7 +20,7 @@ on:
       - avb-test-key.pem
       - .github/workflows/build.yml
   push:
-    branches: [main, nix-full]
+    branches: [main]
   workflow_dispatch:
     inputs:
       kernel:
@@ -363,7 +363,7 @@ jobs:
         run: |
           nix flake check -L --keep-going
       - name: Stage the runtime cache closure
-        if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish)) && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         run: |
           set -o pipefail
           nix build --no-link --print-out-paths -L \
@@ -373,7 +373,7 @@ jobs:
             .#flasher .#qcom-va-driver |
             python3 scripts/nix-cache.py prepare "$RUNNER_TEMP/nix-cache"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish)) && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         with:
           name: nix-cache
           path: ${{ runner.temp }}/nix-cache/
@@ -389,15 +389,16 @@ jobs:
       ${{ always() && !cancelled() &&
           ((needs.build.result == 'success' &&
             (github.event_name == 'push' || (inputs.publish && inputs.kernel && inputs.packages))) ||
-           (needs.nix_build.result == 'success' && github.event_name == 'workflow_dispatch' &&
-            inputs.publish && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))) }}
+           (needs.nix_build.result == 'success' &&
+            (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish)) &&
+            github.ref == format('refs/heads/{0}', github.event.repository.default_branch))) }}
     permissions:
       actions: read
       contents: write
     uses: ./.github/workflows/publish.yml
     with:
       publish_packages: ${{ needs.build.result == 'success' && (github.event_name == 'push' || (inputs.publish && inputs.kernel && inputs.packages)) }}
-      publish_nix_cache: ${{ needs.nix_build.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+      publish_nix_cache: ${{ needs.nix_build.result == 'success' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish)) && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     secrets:
       NIX_CACHE_SIGNING_KEY: ${{ secrets.NIX_CACHE_SIGNING_KEY }}
       PACKAGE_PUBLISH_TOKEN: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}
