@@ -17,10 +17,10 @@ on:
   workflow_dispatch:
     inputs:
       build_run:
-        description: Build & Publish run ID for traditional package repositories and images
+        description: Build images and packages run ID for traditional package repositories and images
         type: string
       nix_cache_from_run:
-        description: Build & Publish run ID for a retained Nix cache artifact (default branch only)
+        description: Build images and packages run ID for a retained Nix cache artifact (default branch only)
         type: string
   # Retry publishing retained build artifacts without rebuilding, via a
   # publish-packages-<run_id> branch or tag (or workflow_dispatch).
