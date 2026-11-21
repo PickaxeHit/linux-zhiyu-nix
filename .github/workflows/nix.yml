@@ -119,7 +119,7 @@ jobs:
             '.#kernel^*' .#dtb .#firmware .#sns .#topology .#ucm2 .#udev-rules \
             .#initramfs .#busybox .#fsck-f2fs .#keymint .#static-helpers \
             .#sensh .#sensord .#hexagonrpc '.#libcamera-0_7^*' '.#libcamera-0_8^*' \
-            .#flasher .#android-image-tools .#qcom-va-driver |
+            .#flasher .#qcom-va-driver |
             python3 scripts/nix-cache.py prepare "$RUNNER_TEMP/nix-cache"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: inputs.publish_cache && github.ref_name == github.event.repository.default_branch

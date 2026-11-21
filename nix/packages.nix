@@ -27,7 +27,6 @@ let
     import ./images.nix {
       inherit
         pkgs
-        sources
         kernel
         dtb
         ;

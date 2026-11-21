@@ -31,17 +31,19 @@ def git(*args):
 
 
 def metadata(repo, commit, lock, deps, flake):
-    rows = [("BSP", f"https://github.com/{repo}", "Git", commit, "")]
-    for name, entry in sorted(lock.items()):
+    rows = [("BSP", "主仓", f"https://github.com/{repo}", "", commit, "")]
+    for name in sorted(lock.keys() | deps.keys()):
+        entry = lock[name] if name in lock else deps[name]
         ref = entry.get("rev") or entry["sha256"]
         label = entry.get("version") or deps.get(name, {}).get("tag", "")
-        rows.append((name, entry["url"], label, ref, entry["hash"]))
+        scope = "Nix 源码锁" if name in lock else "传统构建"
+        rows.append((name, scope, entry["url"], label, ref, entry.get("hash", "")))
     for name, node in sorted(flake["nodes"].items()):
         if entry := node.get("locked"):
             url = entry.get("url")
             if entry["type"] == "github":
                 url = f"https://github.com/{entry['owner']}/{entry['repo']}"
-            rows.append((f"flake/{name}", url or entry["type"], node.get("original", {}).get("ref", ""),
+            rows.append((f"flake/{name}", "Flake 锁", url or entry["type"], node.get("original", {}).get("ref", ""),
                          entry.get("rev", ""), entry.get("narHash", "")))
     lines = [
         "# 源码版本表",
@@ -49,8 +51,8 @@ def metadata(repo, commit, lock, deps, flake):
         "由 CI 根据主仓提交、源码锁和 Flake 锁生成。Rust crate 版本及校验和见",
         "[`keymint/idlc.Cargo.lock`](keymint/idlc.Cargo.lock)。",
         "",
-        "| 组件 | 上游 | 版本标签 | 完整 Git 提交或归档 SHA-256 | Nix 源码哈希 |",
-        "| --- | --- | --- | --- | --- |",
+        "| 组件 | 锁定来源 | 上游 | 版本标签 | 完整 Git 提交或归档 SHA-256 | Nix 源码哈希 |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
     lines.extend("| " + " | ".join(str(v).replace("|", r"\|") for v in row) + " |" for row in rows)
     return "\n".join(lines) + "\n"

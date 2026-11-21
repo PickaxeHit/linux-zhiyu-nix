@@ -1,6 +1,5 @@
 {
   pkgs,
-  sources,
   kernel,
   initramfs,
   dtb,
@@ -11,24 +10,7 @@
 }:
 let
   inherit (pkgs) lib runCommand;
-  tools =
-    runCommand "zhiyu-android-image-tools"
-      {
-        nativeBuildInputs = [
-          pkgs.python3
-          pkgs.makeWrapper
-        ];
-      }
-      ''
-        mkdir -p "$out/bin" "$out/libexec"
-        cp -r ${sources.mkbootimg.src}/. "$out/libexec/"
-        cp ${sources.avb.src}/avbtool.py "$out/libexec/"
-        for pair in mkbootimg:mkbootimg.py unpack_bootimg:unpack_bootimg.py avbtool:avbtool.py; do
-          makeWrapper ${pkgs.python3}/bin/python3 "$out/bin/''${pair%%:*}" \
-            --add-flags "$out/libexec/''${pair#*:}" \
-            --prefix PATH : ${lib.makeBinPath [ pkgs.openssl ]}
-        done
-      '';
+  tools = pkgs.buildPackages.android-tools;
   key = ../avb-test-key.pem;
   bootScript = ../mkbootimg;
   vendorScript = ../mkvendorbootimg;
@@ -59,6 +41,7 @@ let
         nativeBuildInputs = [
           pkgs.cpio
           pkgs.gzip
+          pkgs.openssl
         ];
         KEY = key;
         MKBOOTIMG = "${tools}/bin/mkbootimg";

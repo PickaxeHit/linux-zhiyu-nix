@@ -7,18 +7,14 @@ builtins.mapAttrs (
   name: spec:
   spec
   // {
-    version = spec.version or (pkgs.lib.removePrefix "v" (manifest.${name}.tag or spec.rev));
+    version =
+      spec.version
+        or (pkgs.lib.removePrefix "v" (manifest.${name}.tag or manifest.${name}.version or spec.rev));
     src =
-      if
-        builtins.elem spec.fetcher [
-          "unpacked"
-          "gitiles"
-        ]
-      then
+      if spec.fetcher == "unpacked" then
         pkgs.fetchzip {
           url = spec.archive;
           extension = "tar.gz";
-          stripRoot = spec.fetcher == "unpacked";
           inherit (spec) hash;
         }
       else if spec.fetcher == "git" then

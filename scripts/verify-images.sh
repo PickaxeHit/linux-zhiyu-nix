@@ -7,17 +7,35 @@ if [[ ${1:-} == --bundle ]]; then
   unpack_dir=$(mktemp -d)
   trap 'rm -rf "$unpack_dir"' EXIT
   grep -qx 'CONFIG_BOOT_CONFIG=y' "$config"
-  for partition in boot vendor_boot init_boot; do
-    "$UNPACK" --boot_img "$images/$partition.img" --out "$unpack_dir/$partition" > "$unpack_dir/$partition.header"
+  declare -A sizes=(
+    [boot]=100663296 [vendor_boot]=100663296 [init_boot]=8388608 [vbmeta]=65536
+  )
+  for partition in boot vendor_boot init_boot vbmeta; do
+    image="$images/$partition.img"
+    test "$(stat -Lc %s "$image")" = "${sizes[$partition]}"
+    "$AVBTOOL" verify_image --image "$image" --key "$KEY"
+    info="$unpack_dir/$partition.avb"
+    "$AVBTOOL" info_image --image "$image" > "$info"
+    grep -Eq '^Minimum libavb version: +1\.0$' "$info"
+    grep -Eq '^Algorithm: +SHA256_RSA4096$' "$info"
+    if [[ "$partition" == vbmeta ]]; then
+      grep -Eq '^Flags: +3$' "$info"
+      continue
+    fi
+    grep -Eq '^Flags: +0$' "$info"
+    grep -Eq "^ +Partition Name: +$partition$" "$info"
+    grep -qF "Prop: com.android.build.$partition.os_version -> '${AVB_BOOT_OS_VERSION:-15}'" "$info"
+    grep -qF "Prop: com.android.build.$partition.security_patch -> '${AVB_BOOT_PATCH:-2025-06-05}'" "$info"
+    "$UNPACK" --boot_img "$image" --out "$unpack_dir/$partition" > "$unpack_dir/$partition.header"
     grep -Eqi 'header version: *4$' "$unpack_dir/$partition.header"
-    "$AVBTOOL" verify_image --image "$images/$partition.img" --key "$KEY"
   done
+  descriptors=$(sed -n 's/^ *Partition Name: *//p' "$unpack_dir/vbmeta.avb" | LC_ALL=C sort)
+  test "$descriptors" = $'boot\ninit_boot\nvendor_boot'
   if grep -qF 'androidboot.slot_suffix=' "$unpack_dir/boot.header"; then
     echo 'Hardcoded Android slot' >&2
     exit 1
   fi
   grep -qE 'command line args: .* bootconfig( |$)' "$unpack_dir/boot.header"
-  "$AVBTOOL" verify_image --image "$images/vbmeta.img" --key "$KEY"
   exit
 fi
 cd "$(dirname "$0")/.."

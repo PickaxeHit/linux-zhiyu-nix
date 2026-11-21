@@ -8,7 +8,6 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from tempfile import TemporaryDirectory
 
 import deps
 
@@ -25,6 +24,8 @@ def sources():
     manifest = deps.validate(deps.load())
     result = {}
     for name, entry in manifest.items():
+        if not entry.get("nix", True):
+            continue
         if entry["type"] == "git":
             if "rev" not in entry:
                 raise ValueError(f"{name}: run scripts/deps.py lock --missing")
@@ -58,9 +59,6 @@ def sources():
             owner, repo = github.groups()
             spec["fetcher"] = "unpacked"
             spec["archive"] = f"https://codeload.github.com/{owner}/{repo}/tar.gz/{spec['rev']}"
-        elif spec["url"].startswith("https://android.googlesource.com/"):
-            spec["fetcher"] = "gitiles"
-            spec["archive"] = f"{spec['url']}/+archive/{spec['rev']}.tar.gz"
         else:
             spec["fetcher"] = "git"
     return result
@@ -82,18 +80,6 @@ def prefetch(name, spec):
     if kind == "archive":
         # Flat checksum of the compressed bytes, already declared in deps.json.
         return spec | {"hash": "sha256-" + base64.b64encode(bytes.fromhex(spec["sha256"])).decode()}
-    if kind == "gitiles":
-        # Gitiles archives have no enclosing directory. Match fetchzip's
-        # stripRoot=false and hash the extracted content, not the gzip bytes.
-        with TemporaryDirectory() as directory:
-            archive = Path(directory) / "source.tar.gz"
-            tree = Path(directory) / "tree"
-            tree.mkdir()
-            run("curl", "--fail", "--silent", "--show-error", "--location",
-                "--retry", "3", "--output", str(archive), spec["archive"])
-            run("tar", "--extract", "--file", str(archive), "--directory", str(tree))
-            digest = run(*NIX, "hash", "path", str(tree))
-        return spec | {"hash": digest}
     if kind == "unpacked":
         # Recursive hash of the unpacked tree with the top-level directory stripped.
         obj = json.loads(run(*NIX, "store", "prefetch-file", "--json", "--unpack", spec["archive"]))

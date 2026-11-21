@@ -80,7 +80,10 @@ nix build github:PickaxeHit/linux-zhiyu-next/nix-stable#zhiyu-images
 `zhiyu-images` 包含四个分区镜像、大小和 SHA-256 清单。可单独构建
 `zhiyu-boot`、`zhiyu-vendor-boot`、`zhiyu-init-boot` 和 `zhiyu-vbmeta`。
 启动镜像使用仓库公开的 AVB 测试密钥，需要解锁的 Bootloader。
-生产签名密钥应在 Nix 之外的签名环节使用。
+生产签名密钥应在 Nix 之外的签名环节使用。Nix 镜像流水线使用 `flake.lock`
+固定的 nixpkgs `android-tools`，传统构建继续用 `deps.json` 固定的
+Android 15 工具。BusyBox、F2FS 和 KeyMint 的静态依赖由两个后端共用的
+源码提交固定。
 
 内核通过 `linuxManualConfig` 读取共享 Kconfig，输出内核、模块和外部模块
 所需的开发树。Nix 构建显式设置空的 `LOCALVERSION`，仅使用 Kconfig 中
@@ -161,7 +164,8 @@ nix flake update nixpkgs
 Git 依赖提交以 `deps/deps.json` 为准，内核与 libcamera 提交以主仓
 Git index 中的 gitlink 为准，Cargo crate 固定在 `keymint/idlc.Cargo.lock`。
 `deps/nix-sources.json` 由工具生成，保存固定输出 fetcher 用的哈希和从源码
-提取的版本。GitHub、Gitiles 归档使用解包目录的递归哈希，Git fetcher 使用
+提取的版本。传统后端专用条目可设置 `"nix": false`，CI 仍将其列入稳定分支版本表。
+GitHub 归档使用解包目录的递归哈希，Git fetcher 使用
 导出目录的 NAR 哈希。普通 tarball 的归档字节哈希仍由 `deps.json` 声明。
 锁检查不联网，ARM64 构建会校验实际固定输出。
 

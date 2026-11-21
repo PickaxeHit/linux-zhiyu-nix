@@ -6,13 +6,6 @@
     "rev": "35e482d209ecacdda205eea75866a957396e7b0a",
     "url": "https://github.com/linux-msm/audioreach-topology.git"
   },
-  "avb": {
-    "archive": "https://android.googlesource.com/platform/external/avb/+archive/25a14f7e3e6493a7f1a42aa9f78209d4dbe848e9.tar.gz",
-    "fetcher": "gitiles",
-    "hash": "sha256-6/mh7PH+QMjg3I7P3yp4neMsmtDDFnT5LMM7Y0jKjbE=",
-    "rev": "25a14f7e3e6493a7f1a42aa9f78209d4dbe848e9",
-    "url": "https://android.googlesource.com/platform/external/avb"
-  },
   "busybox": {
     "fetcher": "git",
     "hash": "sha256-KML3+jzUEA4+0FrEh1w/Fpt78A5DdTZMHr9YW5nFJQ4=",
@@ -76,13 +69,6 @@
     "hash": "sha256-52vUyTz9rLG/qmLrkS4IO+AMVbXqsBQa5RcVRy0RuQs=",
     "rev": "5e3c6951d13162a262ea65ea8e8351228f092b58",
     "url": "https://github.com/quic/minkipc.git"
-  },
-  "mkbootimg": {
-    "archive": "https://android.googlesource.com/platform/system/tools/mkbootimg/+archive/c40a04c0620c5a0dab87497857805b8d9b8a827a.tar.gz",
-    "fetcher": "gitiles",
-    "hash": "sha256-xBrwAAaOZBucZq4tKToX9tDzPdGvx833xbneFMWLw5Y=",
-    "rev": "c40a04c0620c5a0dab87497857805b8d9b8a827a",
-    "url": "https://android.googlesource.com/platform/system/tools/mkbootimg"
   },
   "openssl": {
     "archive": "https://codeload.github.com/openssl/openssl/tar.gz/a279090b9cd6b682a5a178410765a63e619fa2d9",
