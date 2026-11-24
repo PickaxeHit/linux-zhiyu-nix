@@ -90,6 +90,14 @@ jobs:
         run: |
           ./build.sh packages --distro void
           ./build.sh manifest
+      - name: Preserve built packages before installation tests
+        run: cp out/manifest.json out/xbps/manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zhiyu-void-aarch64-untested
+          path: out/xbps/
+          if-no-files-found: error
+          compression-level: 0
       - name: Index packages and test installation in an independent Void container
         run: |
           image=$(python3 -c 'import json; print(json.load(open("out/package-environments/void/userspace.json"))["image_id"])')
@@ -111,8 +119,8 @@ jobs:
               set -x
               for service in hexagonrpcd-adsp-rootpd hexagonrpcd-adsp-sensorspd zhiyu-sensord; do test -x "/etc/sv/$service/run"; done
               test -x /usr/bin/sensh
-              test -f /usr/lib/dri/qcom_drv_video.so
-              for binary in /usr/bin/zhiyu-sensord /usr/bin/sensh /usr/bin/hexagonrpcd /usr/lib/dri/qcom_drv_video.so /usr/lib/libcamera.so.*; do
+              for driver in v4l2 msm qcom; do test -f "/usr/lib/dri/${driver}_drv_video.so"; done
+              for binary in /usr/bin/zhiyu-sensord /usr/bin/sensh /usr/bin/hexagonrpcd /usr/lib/dri/v4l2_drv_video.so /usr/lib/libcamera.so.*; do
                 test -f "$binary"
                 deps=$(ldd "$binary")
                 echo "$deps"

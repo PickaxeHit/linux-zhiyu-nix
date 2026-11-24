@@ -56,6 +56,15 @@ meson setup "$build/qcom-va-driver" "$va" --buildtype=release --prefix=/usr --li
     -Dgpu_copy=enabled -Dcdsp_vpp=disabled -Dvulkan_vpp=disabled
 meson compile -C "$build/qcom-va-driver" -j"${JOBS:-1}"
 DESTDIR="$stage/qcom-va-driver" meson install -C "$build/qcom-va-driver" --no-rebuild
+# Upstream names the backend v4l2 and supplies the msm alias. Retain the
+# qcom alias used by existing Zhiyu desktop configurations as well.
+dri="$stage/qcom-va-driver/usr/lib/dri"
+test -f "$dri/v4l2_drv_video.so"
+test -f "$dri/msm_drv_video.so"
+if [[ ! -e "$dri/qcom_drv_video.so" && ! -L "$dri/qcom_drv_video.so" ]]; then
+    ln -s v4l2_drv_video.so "$dri/qcom_drv_video.so"
+fi
+test -f "$dri/qcom_drv_video.so"
 for license in "$va"/LICENSE* "$va"/COPYING*; do
     [[ -f "$license" ]] || continue
     install -Dm644 "$license" "$stage/qcom-va-driver/usr/share/licenses/qcom-va-driver/${license##*/}"
