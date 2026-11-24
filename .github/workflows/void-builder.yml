@@ -17,10 +17,6 @@ on:
         description: Publish a signed experimental XBPS repository in this repository's Releases
         type: boolean
         default: true
-      rotate_key:
-        description: Explicitly allow changing the fixed repository signing key (clients must trust the new key)
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -206,38 +202,14 @@ jobs:
       - name: Sign repository
         env:
           VOID_REPO_SIGNING_KEY: ${{ secrets.VOID_REPO_SIGNING_KEY }}
-          GH_TOKEN: ${{ github.token }}
-          ALLOW_KEY_ROTATION: ${{ github.event_name == 'workflow_dispatch' && inputs.rotate_key }}
         run: |
           set -euo pipefail
           umask 077
           key="$RUNNER_TEMP/void-key.pem"
           trap 'rm -f "$key"' EXIT
-          # A fixed repository must not silently replace its trust anchor.
-          if gh release view repo-xbps --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            gh release download repo-xbps --repo "$GITHUB_REPOSITORY" \
-              --pattern repo-public.pem --dir "$RUNNER_TEMP"
-            previous="$RUNNER_TEMP/repo-public.pem"
-          else
-            previous=
-          fi
-          if [[ -n "$VOID_REPO_SIGNING_KEY" ]]; then
-            printf '%s\n' "$VOID_REPO_SIGNING_KEY" > "$key"
-          elif [[ -n "$previous" ]]; then
-            echo '::error::Set VOID_REPO_SIGNING_KEY before updating the fixed XBPS repository.'
-            exit 1
-          else
-            echo '::warning::First experimental publication uses a temporary key. Configure VOID_REPO_SIGNING_KEY and explicitly rotate once before subsequent updates.'
-            openssl genrsa -traditional -out "$key" 4096
-          fi
+          : "${VOID_REPO_SIGNING_KEY:?Configure VOID_REPO_SIGNING_KEY in repository secrets}"
+          printf '%s\n' "$VOID_REPO_SIGNING_KEY" > "$key"
           openssl pkey -in "$key" -pubout -out repo/repo-public.pem
-          if [[ -n "$previous" ]] && ! cmp -s "$previous" repo/repo-public.pem; then
-            if [[ "$ALLOW_KEY_ROTATION" != true ]]; then
-              echo '::error::Signing key differs from fixed repository. Use workflow_dispatch rotate_key=true only for an intentional key change.'
-              exit 1
-            fi
-            echo '::warning::Explicit signing key rotation: existing clients must verify and trust the new key.'
-          fi
           docker run --rm --platform linux/arm64 --user 0:0 \
             -v "$PWD/repo:/repo" -v "$key:/key.pem:ro" \
             --entrypoint /bin/sh ghcr.io/void-linux/void-glibc-full:latest -ec '
@@ -257,14 +229,24 @@ jobs:
       - name: Publish fixed XBPS repository
         env:
           GH_TOKEN: ${{ github.token }}
-          ALLOW_KEY_ROTATION: ${{ github.event_name == 'workflow_dispatch' && inputs.rotate_key }}
         run: |
           set -euo pipefail
           tag=repo-xbps
           source_sha=$(python3 -c 'import json; print(json.load(open("repo/manifest.json"))["source"]["main"])')
           [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
           notes="Experimental signed XBPS repository. Build source: $source_sha. Validation: $GITHUB_SHA. The fixed tag is a publication channel, not the build source; see manifest.json. Verify the key before trusting it. Services and boot image updates are opt-in."
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+          # One-time cleanup of the two experimental releases published
+          # before the owner configured the permanent signing key. Use exact
+          # release IDs; never delete a subsequent release or another channel.
+          releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")
+          fixed_id=$(jq -r '[.[][] | select(.tag_name == "repo-xbps")][0].id // empty' <<< "$releases")
+          if [[ "$GITHUB_REPOSITORY" == PickaxeHit/linux-zhiyu-nix && "$fixed_id" == 457397575 ]]; then
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$fixed_id"
+            fixed_id=
+          fi
+          if [[ -n "$fixed_id" ]]; then
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern repo-public.pem --dir "$RUNNER_TEMP"
+            cmp -s "$RUNNER_TEMP/repo-public.pem" repo/repo-public.pem || { echo '::error::Repository signing key mismatch'; exit 1; }
             # Never overwrite a package filename with different bytes. Keep
             # older packages and signatures for clients using a cached index.
             gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > "$RUNNER_TEMP/void-release.json"
@@ -288,8 +270,6 @@ jobs:
               sig_name=$(basename "$sig")
               if ! jq -e --arg name "$sig_name" '.assets[] | select(.name == $name)' "$RUNNER_TEMP/void-release.json" > /dev/null; then
                 gh release upload "$tag" "$sig" --repo "$GITHUB_REPOSITORY"
-              elif [[ "$ALLOW_KEY_ROTATION" == true ]]; then
-                gh release upload "$tag" "$sig" --clobber --repo "$GITHUB_REPOSITORY"
               else
                 actual="sha256:$(sha256sum "$sig" | cut -d' ' -f1)"
                 expected=$(jq -r --arg name "$sig_name" '.assets[] | select(.name == $name) | .digest' "$RUNNER_TEMP/void-release.json")
@@ -304,5 +284,11 @@ jobs:
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
               --prerelease --latest=false --title "Void aarch64 BSP repository (experimental)" \
               --notes "$notes" repo/*
+          fi
+          # Remove the obsolete versioned release only after the replacement
+          # fixed repository has been successfully uploaded.
+          if [[ "$GITHUB_REPOSITORY" == PickaxeHit/linux-zhiyu-nix ]] &&
+             jq -e '.[][] | select(.id == 457373352 and .tag_name == "repo-xbps-45494106298-1")' <<< "$releases" > /dev/null; then
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/457373352"
           fi
           echo "Repository: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/" >> "$GITHUB_STEP_SUMMARY"
