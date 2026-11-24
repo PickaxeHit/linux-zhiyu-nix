@@ -1,5 +1,6 @@
 {
   "debian": "docker.io/library/debian:13-slim",
   "arch": "docker.io/menci/archlinuxarm:base",
-  "fedora": "quay.io/fedora/fedora:44"
+  "fedora": "quay.io/fedora/fedora:44",
+  "void": "ghcr.io/void-linux/void-glibc:latest"
 }

@@ -84,5 +84,17 @@
     "url": "https://github.com/radxa-pkg/qcom-va-driver.git",
     "tag": "v1.1.1",
     "rev": "35eff37ffcf79643eb29583f1960c5f636e287df"
+  },
+  "qmic": {
+    "type": "git",
+    "url": "https://github.com/linux-msm/qmic.git",
+    "rev": "4574736afce75aa5eec1e1069a19563410167c9f",
+    "nix": false
+  },
+  "qrtr": {
+    "type": "git",
+    "url": "https://github.com/linux-msm/qrtr.git",
+    "rev": "29e36ae164389580a0f8ea7a7fdb728140ae978d",
+    "nix": false
   }
 }

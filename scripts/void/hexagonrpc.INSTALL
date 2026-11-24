@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+case "$1" in
+    post)
+        getent group fastrpc >/dev/null || groupadd -r fastrpc
+        getent passwd fastrpc >/dev/null || useradd -r -g fastrpc -d /var/lib/fastrpc -s /sbin/nologin fastrpc
+        install -d -o fastrpc -g fastrpc -m755 /var/lib/fastrpc /usr/share/qcom/sensors/registry
+        ;;
+esac

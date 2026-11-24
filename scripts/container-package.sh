@@ -8,6 +8,7 @@ mkdir -p "$PACKAGE_OUT"
 case $DISTRO in
     debian) dpkg-query -W -f='${Package}\t${Version}\n' ;;
     arch) pacman -Q ;;
+    void) xbps-query -l | awk '$1 == "ii" {print $2}' ;;
     fedora) rpm -qa --qf '%{NAME}\t%{VERSION}-%{RELEASE}.%{ARCH}\n' ;;
 esac | LC_ALL=C sort > "$PACKAGE_OUT/installed-packages.txt"
 # Compare the actual installed environment before compilation. A lock detects

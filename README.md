@@ -62,3 +62,9 @@ NixOS 请使用同一次 [Rootfs Builder 测试构建](https://github.com/Pickax
 https://github.com/yzddmr6/xiaomipad-8pro-mainline
 
 https://github.com/KunBuFenZi/progt13-ubuntu
+
+## Experimental Void Linux BSP (aarch64 glibc)
+
+`./build.sh packages --distro void` builds XBPS packages in the official Void glibc OCI image after `./build.sh images`. The existing three-distro `all` target and production publication workflow are unchanged. Void is tested independently by **Build and publish Void BSP (experimental)**. It publishes versioned, signed prereleases to this repository using its own GitHub token; no cross-repository token is needed. A persistent RSA PEM can be configured as `VOID_REPO_SIGNING_KEY`; otherwise each experimental release has a fresh key. Verify the key independently before trusting the remote repository. The release contains the public key and SHA256SUMS. Use the exact release asset URL as the XBPS repository. There is no mutable latest tag.
+
+The package set includes four kernel/firmware/image packages, the ABI-matched libcamera replacement (including GStreamer), QRTR, sensh, hexagonrpc, zhiyu-sensord and qcom-va-driver. The runit services are installed but not enabled. On the tablet, enable dbus and the three services with links from /etc/sv to /var/service. Disable iio-sensor-proxy if it would compete for the same D-Bus name. The image package never flashes partitions on installation: after checking the matching package set, explicitly run `sudo /usr/libexec/zhiyu/update-boot-images.sh` on the tablet. The first CI run checks package installation and dynamic linkage, not actual tablet hardware or sleep/resume.

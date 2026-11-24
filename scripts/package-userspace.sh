@@ -7,10 +7,20 @@ mkdir -p "$BUILD_ROOT" "$STAGE_ROOT"
 case $DISTRO in
     debian) libdir=lib/aarch64-linux-gnu; versions=(0.7 0.8) ;;
     arch) libdir=lib; versions=(0.7) ;;
+    void)
+        libdir=lib
+        upstream=$(xbps-query -R -p pkgver libcamera)
+        abi=$(sed -n 's/^libcamera-\([0-9]*\.[0-9]*\).*/\1/p' <<< "$upstream")
+        case $abi in 0.7|0.8) versions=("$abi") ;; *) echo "Unsupported Void libcamera ABI: $upstream" >&2; exit 1 ;; esac
+        scripts/package-void-extras.sh
+        ;;
     fedora) libdir=lib64; versions=(0.7 0.8); scripts/package-fedora-extras.sh ;;
     *) exit 2 ;;
 esac
 lc_options=(-Dwerror=false -Dqcam=enabled -Dpipelines=simple -Dgstreamer=disabled -Dpycamera=disabled -Ddocumentation=disabled -Dcam=enabled -Dv4l2=enabled -Dtest=false)
+if [[ $DISTRO == void ]]; then
+    lc_options=("${lc_options[@]/-Dgstreamer=disabled/-Dgstreamer=enabled}")
+fi
 # Preserve the supported camera ABIs for each distribution.
 for soname in "${versions[@]}"; do
   src=libcamera/$soname
@@ -35,6 +45,8 @@ for soname in "${versions[@]}"; do
   PKG_ARCH_PROVIDES="libcamera libcamera-tools libcamera-ipa" \
   PKG_ARCH_CONFLICTS="libcamera libcamera-tools libcamera-ipa" \
   PKG_ARCH_REPLACES="libcamera libcamera-tools libcamera-ipa" \
+  PKG_XBPS_PROVIDES="libcamera-${version}_${PKG_REVISION:-1} libcamera-devel-${version}_${PKG_REVISION:-1}" \
+  PKG_XBPS_REPLACES="libcamera>=0 libcamera-devel>=0" \
   PKG_RPM_PROVIDES="libcamera = $version" \
   PKG_RPM_CONFLICTS="libcamera < $version, libcamera > $version" \
   scripts/emit-package.sh "$stage" "$PACKAGE_OUT"
@@ -42,7 +54,7 @@ done
 
 rm -rf "$STAGE_ROOT/zhiyu-sensord"
 mkdir -p "$BUILD_ROOT"
-if [[ $DISTRO == fedora ]]; then
+if [[ $DISTRO == fedora || $DISTRO == void ]]; then
     make -C sensors -B TARGET="$PWD/$BUILD_ROOT/sensord" CPPFLAGS='-DSENSH=\"/usr/bin/sensh\"'
 else
     make -C sensors -B TARGET="$PWD/$BUILD_ROOT/sensord"
@@ -52,10 +64,14 @@ fi
 install -Dm755 "$BUILD_ROOT/sensord" "$STAGE_ROOT/zhiyu-sensord"/usr/bin/zhiyu-sensord
 # The unit in the tree points at /usr/local/bin for hand installs;
 # the package owns /usr/bin.
-install -Dm644 sensors/zhiyu-sensord.service \
-  "$STAGE_ROOT/zhiyu-sensord"/usr/lib/systemd/system/zhiyu-sensord.service
-sed -i 's#^ExecStart=.*#ExecStart=/usr/bin/zhiyu-sensord#' \
-  "$STAGE_ROOT/zhiyu-sensord"/usr/lib/systemd/system/zhiyu-sensord.service
+if [[ $DISTRO == void ]]; then
+    install -Dm755 scripts/void/zhiyu-sensord.run "$STAGE_ROOT/zhiyu-sensord/etc/sv/zhiyu-sensord/run"
+else
+    install -Dm644 sensors/zhiyu-sensord.service \
+      "$STAGE_ROOT/zhiyu-sensord"/usr/lib/systemd/system/zhiyu-sensord.service
+    sed -i 's#^ExecStart=.*#ExecStart=/usr/bin/zhiyu-sensord#' \
+      "$STAGE_ROOT/zhiyu-sensord"/usr/lib/systemd/system/zhiyu-sensord.service
+fi
 # iio-sensor-proxy owns net.hadess.SensorProxy.conf. Give this policy its own filename.
 install -Dm644 sensors/sensord-dbus.conf \
   "$STAGE_ROOT/zhiyu-sensord"/usr/share/dbus-1/system.d/zhiyu-sensord.conf
@@ -65,5 +81,6 @@ PKG_VERSION=1.0.0 \
 PKG_DESC="SensorProxy daemon backed by sensh/SNS Client" \
 PKG_DEB_DEPENDS="libc6, libglib2.0-0t64, kmod" \
 PKG_ARCH_DEPENDS="glibc glib2 kmod" \
+PKG_XBPS_DEPENDS="sensh>=0 hexagonrpc>=0 kmod>=0 dbus>=0 runit>=0 coreutils>=0" \
 PKG_RPM_REQUIRES="sensh, kmod" \
 scripts/emit-package.sh "$STAGE_ROOT/zhiyu-sensord" "$PACKAGE_OUT"

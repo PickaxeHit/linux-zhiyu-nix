@@ -11,6 +11,7 @@ PKG_VERSION="$VER" \
 PKG_DESC="Linux $VER modules for the zhiyu port" \
 PKG_DEB_DEPENDS="kmod" \
 PKG_ARCH_DEPENDS="kmod" \
+PKG_XBPS_DEPENDS="kmod>=0" \
 PKG_RPM_REQUIRES=kmod \
 scripts/emit-package.sh stage/linux-zhiyu-modules "$PACKAGE_OUT"
 
@@ -21,6 +22,7 @@ PKG_DEB_DEPENDS="gcc-14" \
 PKG_DEB_PROVIDES="linux-headers" \
 PKG_ARCH_DEPENDS="gcc" \
 PKG_ARCH_PROVIDES="linux-headers" \
+PKG_XBPS_DEPENDS="gcc>=0 make>=0" \
 PKG_RPM_REQUIRES='gcc, make' \
 scripts/emit-package.sh stage/linux-zhiyu-headers "$PACKAGE_OUT"
 
@@ -39,6 +41,7 @@ PKG_ARCH_DEPENDS="coreutils util-linux grep sed gawk diffutils xz linux-zhiyu-mo
 PKG_DEB_POSTINST=scripts/linux-zhiyu-images.postinst \
 PKG_ARCH_INSTALL=scripts/linux-zhiyu-images.install \
 PKG_RPM_REQUIRES="coreutils, util-linux, grep, sed, gawk, diffutils, xz, linux-zhiyu-modules = ${VER//-/_}-${PKG_REVISION:-1}" \
+PKG_XBPS_DEPENDS="coreutils>=0 util-linux>=0 grep>=0 sed>=0 gawk>=0 diffutils>=0 xz>=0 linux-zhiyu-modules-$(printf '%s' "$VER" | tr '-+' '.p')_${PKG_REVISION:-1}" \
 PKG_RPM_POST=/usr/libexec/zhiyu/update-boot-images.sh \
 scripts/emit-package.sh stage/linux-zhiyu-images "$PACKAGE_OUT"
 

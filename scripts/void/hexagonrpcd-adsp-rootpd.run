@@ -1,0 +1,7 @@
+#!/bin/sh
+exec 2>&1
+modprobe -q fastrpc || :
+while [ ! -c /dev/fastrpc-adsp ]; do sleep 1; done
+if [ -c /dev/fastrpc-sdsp ]; then exec sleep 3600; fi
+chown fastrpc:fastrpc /usr/share/qcom/sensors/registry
+exec chpst -u fastrpc:fastrpc /usr/bin/hexagonrpcd -f /dev/fastrpc-adsp -d adsp

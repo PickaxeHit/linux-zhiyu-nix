@@ -1,0 +1,9 @@
+#!/bin/sh
+exec 2>&1
+unset NOTIFY_SOCKET
+modprobe -q fastrpc || :
+modprobe -q uinput || :
+for svc in dbus hexagonrpcd-adsp-rootpd hexagonrpcd-adsp-sensorspd; do
+    sv -w 15 check "$svc" || exit 1
+done
+exec /usr/bin/zhiyu-sensord

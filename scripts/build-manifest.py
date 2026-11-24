@@ -36,7 +36,7 @@ for name, dep in manifest.items():
             dep['cached_checkout_mismatch'] = True
 
 out = Path('out')
-files = sorted(set(out.glob('*.img')) | set(out.glob('pkgs/*')) | set(out.glob('rpms/aarch64/*.rpm')))
+files = sorted(set(out.glob('*.img')) | set(out.glob('pkgs/*')) | set(out.glob('rpms/aarch64/*.rpm')) | set(out.glob('xbps/*.xbps')))
 toolchain = {}
 for tool in ('gcc', 'ld', 'aarch64-linux-gnu-gcc', 'aarch64-linux-gnu-ld', 'rustc', 'cargo', 'cmake', 'meson', 'python3', 'dtc', 'alsatplg'):
     if shutil.which(tool):

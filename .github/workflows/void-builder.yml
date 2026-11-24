@@ -1,0 +1,125 @@
+name: Build and publish Void BSP (experimental)
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a signed experimental XBPS repository in this repository's Releases
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: void-bsp-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 300
+    env:
+      CONTAINER_ENGINE: docker
+      CONTAINER_PULL: always
+      KERNEL_CCACHE: 1
+      CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
+      CCACHE_MAXSIZE: 2G
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set package revision
+        run: echo "PKG_REVISION=$((GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))" >> "$GITHUB_ENV"
+      - name: Prepare pinned inputs and native tools
+        run: |
+          scripts/init-submodules.sh
+          python3 scripts/deps.py check --locked
+          scripts/install-ubuntu-build-deps.sh
+          scripts/setup-rust.sh
+      - uses: actions/cache@v4
+        with:
+          path: .cache/ccache
+          key: void-ccache-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: void-ccache-${{ runner.arch }}-
+      - name: Validate scripts and build
+        run: |
+          for script in build.sh scripts/*.sh scripts/void/*.run scripts/void/*.INSTALL; do bash -n "$script"; done
+          python3 scripts/test-build-tools.py
+          python3 scripts/test-ci-tools.py
+          ./build.sh images
+          ./build.sh packages --distro void
+          ./build.sh manifest
+      - name: Index packages and test installation in an independent Void container
+        run: |
+          image=$(python3 -c 'import json; print(json.load(open("out/package-environments/void/userspace.json"))["image_id"])')
+          docker run --rm --platform linux/arm64 --user 0:0 \
+            -v "$PWD/out/xbps:/repo" --entrypoint /bin/bash "$image" -ec '
+              xbps-rindex -a /repo/*.xbps
+              xbps-install -Suy xbps
+              xbps-install -Suy
+              xbps-install -y libcamera
+              xbps-install -y --repository=/repo linux-zhiyu-modules linux-zhiyu-headers linux-zhiyu-firmware linux-zhiyu-images libcamera-zhiyu zhiyu-sensord qcom-va-driver
+              xbps-pkgdb -a
+              for service in hexagonrpcd-adsp-rootpd hexagonrpcd-adsp-sensorspd zhiyu-sensord; do test -x "/etc/sv/$service/run"; done
+              test -x /usr/bin/sensh
+              test -f /usr/lib/dri/qcom_drv_video.so
+              for binary in /usr/bin/zhiyu-sensord /usr/bin/sensh /usr/bin/hexagonrpcd /usr/lib/dri/qcom_drv_video.so /usr/lib/libcamera.so.*; do
+                test -f "$binary"
+                deps=$(ldd "$binary")
+                echo "$deps"
+                ! grep -q "not found" <<< "$deps" || exit 1
+              done
+            '
+          cp out/manifest.json out/xbps/manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zhiyu-void-aarch64
+          path: out/xbps/
+          if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    needs: build
+    if: inputs.publish
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: zhiyu-void-aarch64
+          path: repo
+      - name: Sign repository
+        env:
+          VOID_REPO_SIGNING_KEY: ${{ secrets.VOID_REPO_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          key="$RUNNER_TEMP/void-key.pem"
+          trap 'rm -f "$key"' EXIT
+          if [[ -n "$VOID_REPO_SIGNING_KEY" ]]; then
+            printf '%s\n' "$VOID_REPO_SIGNING_KEY" > "$key"
+          else
+            openssl genrsa -traditional -out "$key" 4096
+          fi
+          openssl pkey -in "$key" -pubout -out repo/repo-public.pem
+          docker run --rm --platform linux/arm64 --user 0:0 \
+            -v "$PWD/repo:/repo" -v "$key:/key.pem:ro" \
+            --entrypoint /bin/bash ghcr.io/void-linux/void-glibc:latest -ec '
+              xbps-rindex -a /repo/*.xbps
+              xbps-rindex --privkey /key.pem --sign --signedby "Zhiyu Void BSP test" /repo
+              xbps-rindex --privkey /key.pem --sign-pkg /repo/*.xbps
+            '
+          sudo chown -R "$(id -u):$(id -g)" repo
+          (cd repo && sha256sum -- *.xbps *.sig2 aarch64-repodata manifest.json repo-public.pem > SHA256SUMS)
+      - name: Publish versioned Release to this test repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="repo-xbps-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --latest=false --title "Void aarch64 BSP test $GITHUB_RUN_NUMBER" \
+            --notes "Experimental signed XBPS repository. Source: $GITHUB_SHA. Verify the published key before trusting it. Services and boot image updates are opt-in." repo/*
+          echo "Repository: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/" >> "$GITHUB_STEP_SUMMARY"

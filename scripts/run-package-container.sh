@@ -11,6 +11,7 @@ export PKG_REVISION=${PKG_REVISION:-1} JOBS=${JOBS:-$(nproc)}
 case $DISTRO in
     debian) override=${DEBIAN_IMAGE:-}; pattern='*.deb'; dest=out/pkgs ;;
     arch) override=${ARCH_IMAGE:-}; pattern='*.pkg.tar.zst'; dest=out/pkgs ;;
+    void) override=${VOID_IMAGE:-}; pattern='*.xbps'; dest=out/xbps ;;
     fedora) override=${FEDORA_IMAGE:-}; pattern='*.rpm'; dest=out/rpms/aarch64 ;;
     *) echo "Unknown distro: $DISTRO" >&2; exit 2 ;;
 esac
@@ -83,8 +84,11 @@ for part in modules headers firmware images; do
 done
 if [[ $BUILD_USERSPACE == true ]]; then
     cam=("$result"/libcamera-zhiyu*$pattern); sensor=("$result"/zhiyu-sensord*$pattern)
-    expected=2; [[ $DISTRO != arch ]] || expected=1
+    expected=2; [[ $DISTRO != arch && $DISTRO != void ]] || expected=1
     [[ ${#cam[@]} -eq $expected && ${#sensor[@]} -eq 1 ]] || { echo 'Missing camera or sensor package' >&2; exit 1; }
+    if [[ $DISTRO == void ]]; then
+        for name in sensh hexagonrpc zhiyu-qrtr qcom-va-driver; do files=("$result"/"$name"-*$pattern); [[ ${#files[@]} -eq 1 ]] || exit 1; done
+    fi
     if [[ $DISTRO == fedora ]]; then
         for name in sensh hexagonrpc; do files=("$result"/"$name"-*$pattern); [[ ${#files[@]} -eq 1 ]] || exit 1; done
     fi
@@ -94,6 +98,7 @@ if [[ $BUILD_KERNEL == true ]]; then
 fi
 if [[ $BUILD_USERSPACE == true ]]; then
     rm -f "$dest"/libcamera-zhiyu*$pattern "$dest"/zhiyu-sensord*$pattern
+    if [[ $DISTRO == void ]]; then rm -f "$dest"/{sensh,hexagonrpc,zhiyu-qrtr,qcom-va-driver}-*$pattern; fi
     if [[ $DISTRO == fedora ]]; then rm -f "$dest"/sensh-*$pattern "$dest"/hexagonrpc-*$pattern; fi
 fi
 mv "${packages[@]}" "$dest/"

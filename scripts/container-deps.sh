@@ -46,5 +46,17 @@ case ${DISTRO:?} in
                 openssl-devel libatomic curl qmic qrtr-devel protobuf-c-devel protobuf-c-compiler
         fi
         ;;
+    void)
+        [[ $(xbps-uhelper arch) == aarch64 ]] || { echo 'Void glibc aarch64 required' >&2; exit 1; }
+        xbps-install -Suy xbps
+        xbps-install -Suy
+        xbps-install -y bash coreutils findutils tar gzip xz zstd binutils python3 util-linux ca-certificates git base-devel
+        if [[ $BUILD_USERSPACE == true ]]; then
+            xbps-install -y meson ninja pkg-config python3-Jinja2 python3-ply python3-yaml \
+                eudev-libudev-devel libdrm-devel libevent-devel libyaml-devel libjpeg-turbo-devel \
+                glib-devel qt6-base-devel libglvnd-devel libgbm-devel openssl-devel \
+                gstreamer1-devel gst-plugins-base1-devel protobuf-c-devel libva-devel
+        fi
+        ;;
     *) exit 2 ;;
 esac

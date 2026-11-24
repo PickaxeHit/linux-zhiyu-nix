@@ -53,7 +53,7 @@ images() {
 }
 usage() {
     cat <<'HELP'
-Usage: ./build.sh [target] [--distro debian|arch|fedora|all]
+Usage: ./build.sh [target] [--distro debian|arch|fedora|void|all]
   kernel           Build kernel and modules into out/kernel
   initramfs        Assemble ramdisk from the matching built kernel
   images (default) Build and verify the complete image set
@@ -65,6 +65,7 @@ Usage: ./build.sh [target] [--distro debian|arch|fedora|all]
   manifest         Record source and output checksums
   all              Build images, all distro packages and archive
   check            Validate dependency manifest
+Void is opt-in: --distro void; all retains the existing three-distro matrix.
 CONTAINER_ENGINE=auto|podman|docker; CONTAINER_PULL=missing|always|never
 STRICT_LOCK=true requires committed dependency pins and recorded environment
 HELP
@@ -78,7 +79,7 @@ while [[ $# -gt 0 ]]; do
         *) usage >&2; exit 2 ;;
     esac
 done
-case $distro in debian|arch|fedora|all) ;; *) usage >&2; exit 2 ;; esac
+case $distro in debian|arch|fedora|void|all) ;; *) usage >&2; exit 2 ;; esac
 case $target in
     -h|--help|help) usage; exit 0 ;;
     check) python3 scripts/deps.py check; exit 0 ;;

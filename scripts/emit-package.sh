@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 case ${DISTRO:?DISTRO required} in
     debian) PKG_FORMATS=deb exec scripts/mkpkgs.sh "$@" ;;
     arch) PKG_FORMATS=arch exec scripts/mkpkgs.sh "$@" ;;
+    void) exec scripts/mkxbps.sh "$@" ;;
     fedora) exec scripts/mkrpm.sh "$@" ;;
     *) exit 2 ;;
 esac
