@@ -4,7 +4,7 @@ set -euo pipefail
 stage=$(realpath "${1:?stage}")
 out=$(realpath -m "${2:?output}")
 name=${PKG_NAME:?}
-version=$(printf '%s' "${PKG_VERSION:?}" | tr '-+' '.p')
+version=$(printf '%s' "${PKG_VERSION:?}" | tr -- '-+' '.p')
 revision=${PKG_REVISION:-1}
 [[ $revision =~ ^[1-9][0-9]*$ ]] || { echo 'XBPS revision must be a positive integer' >&2; exit 1; }
 [[ $(xbps-uhelper arch) == aarch64 ]] || exit 1

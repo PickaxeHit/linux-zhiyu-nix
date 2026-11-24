@@ -1,6 +1,13 @@
 name: Build and publish Void BSP (experimental)
 
 on:
+  push:
+    branches: [nix-full]
+    paths:
+      - '.github/workflows/void-builder.yml'
+      - 'scripts/mkxbps.sh'
+      - 'scripts/package-void-extras.sh'
+      - 'scripts/void/**'
   workflow_dispatch:
     inputs:
       publish:
@@ -81,7 +88,7 @@ jobs:
 
   publish:
     needs: build
-    if: inputs.publish
+    if: github.event_name == 'push' || inputs.publish
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: write
