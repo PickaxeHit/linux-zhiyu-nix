@@ -235,16 +235,7 @@ jobs:
           source_sha=$(python3 -c 'import json; print(json.load(open("repo/manifest.json"))["source"]["main"])')
           [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
           notes="Experimental signed XBPS repository. Build source: $source_sha. Validation: $GITHUB_SHA. The fixed tag is a publication channel, not the build source; see manifest.json. Verify the key before trusting it. Services and boot image updates are opt-in."
-          # One-time cleanup of the two experimental releases published
-          # before the owner configured the permanent signing key. Use exact
-          # release IDs; never delete a subsequent release or another channel.
-          releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")
-          fixed_id=$(jq -r '[.[][] | select(.tag_name == "repo-xbps")][0].id // empty' <<< "$releases")
-          if [[ "$GITHUB_REPOSITORY" == PickaxeHit/linux-zhiyu-nix && "$fixed_id" == 457397575 ]]; then
-            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$fixed_id"
-            fixed_id=
-          fi
-          if [[ -n "$fixed_id" ]]; then
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern repo-public.pem --dir "$RUNNER_TEMP"
             cmp -s "$RUNNER_TEMP/repo-public.pem" repo/repo-public.pem || { echo '::error::Repository signing key mismatch'; exit 1; }
             # Never overwrite a package filename with different bytes. Keep
@@ -284,11 +275,5 @@ jobs:
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
               --prerelease --latest=false --title "Void aarch64 BSP repository (experimental)" \
               --notes "$notes" repo/*
-          fi
-          # Remove the obsolete versioned release only after the replacement
-          # fixed repository has been successfully uploaded.
-          if [[ "$GITHUB_REPOSITORY" == PickaxeHit/linux-zhiyu-nix ]] &&
-             jq -e '.[][] | select(.id == 457373352 and .tag_name == "repo-xbps-45494106298-1")' <<< "$releases" > /dev/null; then
-            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/457373352"
           fi
           echo "Repository: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/" >> "$GITHUB_STEP_SUMMARY"
