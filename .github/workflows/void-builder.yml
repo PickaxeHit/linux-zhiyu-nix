@@ -20,6 +20,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: void-bsp-${{ github.ref }}
@@ -39,9 +40,50 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Reuse packages if only the validation workflow changed
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Only reuse artifacts from this repository's completed Void runs
+          # on the same branch, and only when all build inputs are unchanged.
+          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/void-builder.yml/runs?branch=$GITHUB_REF_NAME&status=completed&per_page=15" \
+            --jq '.workflow_runs[] | select(.head_repository.full_name == .repository.full_name and (.event == "push" or .event == "workflow_dispatch")) | [.id,.head_sha] | @tsv')
+          while read -r run source; do
+            [[ "$run" =~ ^[0-9]+$ && "$source" =~ ^[0-9a-f]{40}$ ]] || continue
+            git cat-file -e "$source^{commit}" 2>/dev/null || continue
+            git diff --quiet "$source" "$GITHUB_SHA" -- . ':(exclude).github/workflows/void-builder.yml' || continue
+            count=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?name=zhiyu-void-aarch64-untested" \
+              --jq '[.artifacts[] | select(.expired == false)] | length')
+            [[ "$count" == 1 ]] || continue
+            mkdir -p out/xbps
+            gh run download "$run" --name zhiyu-void-aarch64-untested --dir out/xbps
+            python3 - "$source" <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          root = Path("out/xbps")
+          manifest = json.loads((root / "manifest.json").read_text())
+          assert manifest["source"]["main"] == sys.argv[1], "Source SHA mismatch"
+          expected = {Path(k).name: v for k, v in manifest["artifacts"].items() if k.startswith("xbps/") and k.endswith(".xbps")}
+          actual = {p.name: p for p in root.glob("*.xbps")}
+          assert len(actual) == 10 and actual.keys() == expected.keys(), "Package set mismatch"
+          for name, p in actual.items():
+              with p.open("rb") as stream:
+                  assert hashlib.file_digest(stream, "sha256").hexdigest() == expected[name]["sha256"], name
+              assert p.stat().st_size == expected[name]["size"], name
+          PY
+            echo "Reusing verified BSP artifacts from run $run ($source)"
+            echo 'reused=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          done <<< "$runs"
+          echo 'reused=false' >> "$GITHUB_OUTPUT"
       - name: Set package revision
+        if: steps.reuse.outputs.reused != 'true'
         run: echo "PKG_REVISION=$((GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))" >> "$GITHUB_ENV"
       - name: Smoke test Void container entrypoint
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           image=$(python3 -c 'import json; print(json.load(open("containers/images.json"))["void"])')
           docker run --rm --platform linux/arm64 --entrypoint /bin/sh "$image" -ec '
@@ -52,16 +94,19 @@ jobs:
             exec /bin/bash -c "bash --version; command -v xbps-create; command -v xbps-rindex"
           '
       - name: Prepare pinned inputs and native tools
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           scripts/init-submodules.sh
           python3 scripts/deps.py check --locked
           scripts/install-ubuntu-build-deps.sh
           scripts/setup-rust.sh
       - name: Identify kernel toolchain
+        if: steps.reuse.outputs.reused != 'true'
         id: toolchain
         run: echo "id=$(gcc --version | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
       - name: Restore shared kernel compiler cache
         id: ccache
+        if: steps.reuse.outputs.reused != 'true'
         uses: actions/cache/restore@v4
         with:
           path: .cache/ccache
@@ -70,29 +115,34 @@ jobs:
             ccache-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.id }}-
             void-ccache-${{ runner.arch }}-
       - name: Validate scripts
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           for script in build.sh scripts/*.sh scripts/void/*.run scripts/void/*.INSTALL; do bash -n "$script"; done
           python3 scripts/test-build-tools.py
           python3 scripts/test-ci-tools.py
           python3 scripts/void/test-elf-deps.py
       - name: Build shared kernel and images
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           ccache -z
           ./build.sh images
           ccache -s
       - name: Save shared kernel compiler cache before packaging
-        if: steps.ccache.outputs.cache-hit != 'true'
+        if: steps.reuse.outputs.reused != 'true' && steps.ccache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: .cache/ccache
           key: ${{ steps.ccache.outputs.cache-primary-key }}
       - name: Build Void packages
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           ./build.sh packages --distro void
           ./build.sh manifest
       - name: Preserve built packages before installation tests
+        if: steps.reuse.outputs.reused != 'true'
         run: cp out/manifest.json out/xbps/manifest.json
       - uses: actions/upload-artifact@v4
+        if: steps.reuse.outputs.reused != 'true'
         with:
           name: zhiyu-void-aarch64-untested
           path: out/xbps/
@@ -100,7 +150,9 @@ jobs:
           compression-level: 0
       - name: Index packages and test installation in an independent Void container
         run: |
-          image=$(python3 -c 'import json; print(json.load(open("out/package-environments/void/userspace.json"))["image_id"])')
+          # Use the exact recorded registry digest, including on a reused build.
+          image=$(python3 -c 'import json; m=json.load(open("out/xbps/manifest.json")); e=m["package_environments"]["void/userspace"]; print(next(d for d in e["repo_digests"] if "@sha256:" in d))')
+          docker pull --platform linux/arm64 "$image"
           docker run --rm --platform linux/arm64 --user 0:0 \
             -v "$PWD/out/xbps:/repo" --entrypoint /bin/sh "$image" -ec '
               xbps-rindex -a /repo/*.xbps
@@ -120,14 +172,15 @@ jobs:
               for service in hexagonrpcd-adsp-rootpd hexagonrpcd-adsp-sensorspd zhiyu-sensord; do test -x "/etc/sv/$service/run"; done
               test -x /usr/bin/sensh
               for driver in v4l2 msm qcom; do test -f "/usr/lib/dri/${driver}_drv_video.so"; done
+              loader=/usr/lib/ld-linux-aarch64.so.1
+              test -x "$loader"
               for binary in /usr/bin/zhiyu-sensord /usr/bin/sensh /usr/bin/hexagonrpcd /usr/lib/dri/v4l2_drv_video.so /usr/lib/libcamera.so.*; do
                 test -f "$binary"
-                deps=$(ldd "$binary")
+                deps=$("$loader" --list "$binary")
                 echo "$deps"
                 if printf "%s\n" "$deps" | grep -q "not found"; then exit 1; fi
               done
             '
-          cp out/manifest.json out/xbps/manifest.json
       - uses: actions/upload-artifact@v4
         with:
           name: zhiyu-void-aarch64
@@ -175,7 +228,9 @@ jobs:
         run: |
           set -euo pipefail
           tag="repo-xbps-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+          source_sha=$(python3 -c 'import json; print(json.load(open("repo/manifest.json"))["source"]["main"])')
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$source_sha" \
             --prerelease --latest=false --title "Void aarch64 BSP test $GITHUB_RUN_NUMBER" \
-            --notes "Experimental signed XBPS repository. Source: $GITHUB_SHA. Verify the published key before trusting it. Services and boot image updates are opt-in." repo/*
+            --notes "Experimental signed XBPS repository. Source: $source_sha. Validation: $GITHUB_SHA. Verify the published key before trusting it. Services and boot image updates are opt-in." repo/*
           echo "Repository: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/" >> "$GITHUB_STEP_SUMMARY"
