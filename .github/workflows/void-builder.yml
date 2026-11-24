@@ -17,6 +17,10 @@ on:
         description: Publish a signed experimental XBPS repository in this repository's Releases
         type: boolean
         default: true
+      rotate_key:
+        description: Explicitly allow changing the fixed repository signing key (clients must trust the new key)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -202,17 +206,38 @@ jobs:
       - name: Sign repository
         env:
           VOID_REPO_SIGNING_KEY: ${{ secrets.VOID_REPO_SIGNING_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          ALLOW_KEY_ROTATION: ${{ github.event_name == 'workflow_dispatch' && inputs.rotate_key }}
         run: |
           set -euo pipefail
           umask 077
           key="$RUNNER_TEMP/void-key.pem"
           trap 'rm -f "$key"' EXIT
+          # A fixed repository must not silently replace its trust anchor.
+          if gh release view repo-xbps --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release download repo-xbps --repo "$GITHUB_REPOSITORY" \
+              --pattern repo-public.pem --dir "$RUNNER_TEMP"
+            previous="$RUNNER_TEMP/repo-public.pem"
+          else
+            previous=
+          fi
           if [[ -n "$VOID_REPO_SIGNING_KEY" ]]; then
             printf '%s\n' "$VOID_REPO_SIGNING_KEY" > "$key"
+          elif [[ -n "$previous" ]]; then
+            echo '::error::Set VOID_REPO_SIGNING_KEY before updating the fixed XBPS repository.'
+            exit 1
           else
+            echo '::warning::First experimental publication uses a temporary key. Configure VOID_REPO_SIGNING_KEY and explicitly rotate once before subsequent updates.'
             openssl genrsa -traditional -out "$key" 4096
           fi
           openssl pkey -in "$key" -pubout -out repo/repo-public.pem
+          if [[ -n "$previous" ]] && ! cmp -s "$previous" repo/repo-public.pem; then
+            if [[ "$ALLOW_KEY_ROTATION" != true ]]; then
+              echo '::error::Signing key differs from fixed repository. Use workflow_dispatch rotate_key=true only for an intentional key change.'
+              exit 1
+            fi
+            echo '::warning::Explicit signing key rotation: existing clients must verify and trust the new key.'
+          fi
           docker run --rm --platform linux/arm64 --user 0:0 \
             -v "$PWD/repo:/repo" -v "$key:/key.pem:ro" \
             --entrypoint /bin/sh ghcr.io/void-linux/void-glibc-full:latest -ec '
@@ -222,18 +247,62 @@ jobs:
             '
           sudo chown -R "$(id -u):$(id -g)" repo
           (cd repo && sha256sum -- *.xbps *.sig2 aarch64-repodata manifest.json repo-public.pem > SHA256SUMS)
-      - name: Publish versioned Release to this test repository
+      - name: Preserve signed repository
+        uses: actions/upload-artifact@v4
+        with:
+          name: zhiyu-void-aarch64-signed
+          path: repo/
+          if-no-files-found: error
+          compression-level: 0
+      - name: Publish fixed XBPS repository
         env:
           GH_TOKEN: ${{ github.token }}
+          ALLOW_KEY_ROTATION: ${{ github.event_name == 'workflow_dispatch' && inputs.rotate_key }}
         run: |
           set -euo pipefail
-          tag="repo-xbps-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          tag=repo-xbps
           source_sha=$(python3 -c 'import json; print(json.load(open("repo/manifest.json"))["source"]["main"])')
           [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
-          # The Actions token cannot create tags at older commits whose
-          # workflow files differ from the current default branch. Let GitHub
-          # tag the default branch; the manifest records the actual build SHA.
-          gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
-            --prerelease --latest=false --title "Void aarch64 BSP test $GITHUB_RUN_NUMBER" \
-            --notes "Experimental signed XBPS repository. Build source: $source_sha. Validation: $GITHUB_SHA. The release tag tracks the default branch at publication; the manifest identifies the actual package sources. Verify the published key before trusting it. Services and boot image updates are opt-in." repo/*
+          notes="Experimental signed XBPS repository. Build source: $source_sha. Validation: $GITHUB_SHA. The fixed tag is a publication channel, not the build source; see manifest.json. Verify the key before trusting it. Services and boot image updates are opt-in."
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            # Never overwrite a package filename with different bytes. Keep
+            # older packages and signatures for clients using a cached index.
+            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > "$RUNNER_TEMP/void-release.json"
+            python3 - "$RUNNER_TEMP/void-release.json" <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          release = json.load(open(sys.argv[1]))
+          assets = {a["name"]: a for a in release["assets"]}
+          for p in Path("repo").glob("*.xbps"):
+              if p.name in assets:
+                  with p.open("rb") as stream:
+                      digest = "sha256:" + hashlib.file_digest(stream, "sha256").hexdigest()
+                  assert assets[p.name].get("digest") == digest, f"Refusing to replace different package bytes: {p.name}"
+          PY
+            for package in repo/*.xbps; do
+              name=$(basename "$package")
+              if ! jq -e --arg name "$name" '.assets[] | select(.name == $name)' "$RUNNER_TEMP/void-release.json" > /dev/null; then
+                gh release upload "$tag" "$package" --repo "$GITHUB_REPOSITORY"
+              fi
+              sig="$package.sig2"
+              sig_name=$(basename "$sig")
+              if ! jq -e --arg name "$sig_name" '.assets[] | select(.name == $name)' "$RUNNER_TEMP/void-release.json" > /dev/null; then
+                gh release upload "$tag" "$sig" --repo "$GITHUB_REPOSITORY"
+              elif [[ "$ALLOW_KEY_ROTATION" == true ]]; then
+                gh release upload "$tag" "$sig" --clobber --repo "$GITHUB_REPOSITORY"
+              else
+                actual="sha256:$(sha256sum "$sig" | cut -d' ' -f1)"
+                expected=$(jq -r --arg name "$sig_name" '.assets[] | select(.name == $name) | .digest' "$RUNNER_TEMP/void-release.json")
+                [[ "$actual" == "$expected" ]] || { echo "Signature mismatch for $name"; exit 1; }
+              fi
+            done
+            gh release upload "$tag" repo/manifest.json repo/repo-public.pem repo/SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
+            # Publish the signed index only after all referenced files exist.
+            gh release upload "$tag" repo/aarch64-repodata --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes "$notes" --prerelease --latest=false
+          else
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
+              --prerelease --latest=false --title "Void aarch64 BSP repository (experimental)" \
+              --notes "$notes" repo/*
+          fi
           echo "Repository: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/" >> "$GITHUB_STEP_SUMMARY"
