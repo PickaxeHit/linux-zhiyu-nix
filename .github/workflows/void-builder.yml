@@ -100,7 +100,15 @@ jobs:
               xbps-install -Suy
               xbps-install -y libcamera
               xbps-install -y --repository=/repo linux-zhiyu-modules linux-zhiyu-headers linux-zhiyu-firmware linux-zhiyu-images libcamera-zhiyu zhiyu-sensord qcom-va-driver
+              # OCI images may supply /proc/mounts rather than the symlink
+              # recorded by Void base-files. Normalize only that known case.
+              if [ "$(readlink /etc/mtab)" = /proc/mounts ]; then
+                ln -sfn /proc/self/mounts /etc/mtab
+              fi
+              echo "Checking installed package database"
               xbps-pkgdb -a
+              echo "Checking runit services and runtime linkage"
+              set -x
               for service in hexagonrpcd-adsp-rootpd hexagonrpcd-adsp-sensorspd zhiyu-sensord; do test -x "/etc/sv/$service/run"; done
               test -x /usr/bin/sensh
               test -f /usr/lib/dri/qcom_drv_video.so
