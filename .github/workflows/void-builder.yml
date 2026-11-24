@@ -57,17 +57,36 @@ jobs:
           python3 scripts/deps.py check --locked
           scripts/install-ubuntu-build-deps.sh
           scripts/setup-rust.sh
-      - uses: actions/cache@v4
+      - name: Identify kernel toolchain
+        id: toolchain
+        run: echo "id=$(gcc --version | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: Restore shared kernel compiler cache
+        id: ccache
+        uses: actions/cache/restore@v4
         with:
           path: .cache/ccache
-          key: void-ccache-${{ runner.arch }}-${{ github.sha }}
-          restore-keys: void-ccache-${{ runner.arch }}-
-      - name: Validate scripts and build
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.id }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.id }}-
+            void-ccache-${{ runner.arch }}-
+      - name: Validate scripts
         run: |
           for script in build.sh scripts/*.sh scripts/void/*.run scripts/void/*.INSTALL; do bash -n "$script"; done
           python3 scripts/test-build-tools.py
           python3 scripts/test-ci-tools.py
+      - name: Build shared kernel and images
+        run: |
+          ccache -z
           ./build.sh images
+          ccache -s
+      - name: Save shared kernel compiler cache before packaging
+        if: steps.ccache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/ccache
+          key: ${{ steps.ccache.outputs.cache-primary-key }}
+      - name: Build Void packages
+        run: |
           ./build.sh packages --distro void
           ./build.sh manifest
       - name: Index packages and test installation in an independent Void container
