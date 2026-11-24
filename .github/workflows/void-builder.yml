@@ -5,6 +5,9 @@ on:
     branches: [nix-full]
     paths:
       - '.github/workflows/void-builder.yml'
+      - 'containers/images.json'
+      - 'scripts/run-package-container.sh'
+      - 'scripts/container-deps.sh'
       - 'scripts/mkxbps.sh'
       - 'scripts/package-void-extras.sh'
       - 'scripts/void/**'
@@ -38,6 +41,16 @@ jobs:
           persist-credentials: false
       - name: Set package revision
         run: echo "PKG_REVISION=$((GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))" >> "$GITHUB_ENV"
+      - name: Smoke test Void container entrypoint
+        run: |
+          image=$(python3 -c 'import json; print(json.load(open("containers/images.json"))["void"])')
+          docker run --rm --platform linux/arm64 --entrypoint /bin/sh "$image" -ec '
+            test "$(xbps-uhelper arch)" = aarch64
+            xbps-install -Suy xbps
+            xbps-install -Suy
+            xbps-install -y bash
+            exec /bin/bash -c "bash --version; command -v xbps-create; command -v xbps-rindex"
+          '
       - name: Prepare pinned inputs and native tools
         run: |
           scripts/init-submodules.sh
@@ -61,7 +74,7 @@ jobs:
         run: |
           image=$(python3 -c 'import json; print(json.load(open("out/package-environments/void/userspace.json"))["image_id"])')
           docker run --rm --platform linux/arm64 --user 0:0 \
-            -v "$PWD/out/xbps:/repo" --entrypoint /bin/bash "$image" -ec '
+            -v "$PWD/out/xbps:/repo" --entrypoint /bin/sh "$image" -ec '
               xbps-rindex -a /repo/*.xbps
               xbps-install -Suy xbps
               xbps-install -Suy
@@ -75,7 +88,7 @@ jobs:
                 test -f "$binary"
                 deps=$(ldd "$binary")
                 echo "$deps"
-                ! grep -q "not found" <<< "$deps" || exit 1
+                if printf "%s\n" "$deps" | grep -q "not found"; then exit 1; fi
               done
             '
           cp out/manifest.json out/xbps/manifest.json
@@ -113,7 +126,7 @@ jobs:
           openssl pkey -in "$key" -pubout -out repo/repo-public.pem
           docker run --rm --platform linux/arm64 --user 0:0 \
             -v "$PWD/repo:/repo" -v "$key:/key.pem:ro" \
-            --entrypoint /bin/bash ghcr.io/void-linux/void-glibc:latest -ec '
+            --entrypoint /bin/sh ghcr.io/void-linux/void-glibc-full:latest -ec '
               xbps-rindex -a /repo/*.xbps
               xbps-rindex --privkey /key.pem --sign --signedby "Zhiyu Void BSP test" /repo
               xbps-rindex --privkey /key.pem --sign-pkg /repo/*.xbps

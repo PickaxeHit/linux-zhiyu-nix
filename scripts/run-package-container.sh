@@ -65,11 +65,19 @@ PY
 # Fedora hosts may need CONTAINER_VOLUME_SUFFIX=z to label the checkout for SELinux.
 volume="$root:/work${CONTAINER_VOLUME_SUFFIX:+:$CONTAINER_VOLUME_SUFFIX}"
 rm -f out/manifest.json
+# Void base-container provides dash, not Bash. Install Bash in the same
+# ephemeral container before entering the common Bash-based build scripts.
+entrypoint=/bin/bash
+entryargs=(scripts/container-entry.sh)
+if [[ $DISTRO == void ]]; then
+    entrypoint=/bin/sh
+    entryargs=(-ec 'xbps-install -Suy xbps; xbps-install -Suy; xbps-install -y bash; exec /bin/bash scripts/container-entry.sh')
+fi
 "$engine" run --rm --pull=never --platform linux/arm64 --user 0:0 \
     -e DISTRO -e BUILD_KERNEL -e BUILD_USERSPACE -e PKG_REVISION -e JOBS -e STRICT_LOCK \
     -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" -e HOST_MAPPED_ROOT="$mapped" \
     -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e 'GIT_CONFIG_VALUE_0=*' \
-    --volume "$volume" --workdir /work --entrypoint /bin/bash "$id" scripts/container-entry.sh
+    --volume "$volume" --workdir /work --entrypoint "$entrypoint" "$id" "${entryargs[@]}"
 result="out/build/packages/$DISTRO/result"
 # Publish just the selected package families on success. Preserve other formats
 # and the unselected family for local incremental builds.
