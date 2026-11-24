@@ -190,7 +190,7 @@ jobs:
 
   publish:
     needs: build
-    if: github.event_name == 'push' || inputs.publish
+    if: (github.event_name == 'push' || inputs.publish) && github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: write
@@ -230,7 +230,10 @@ jobs:
           tag="repo-xbps-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           source_sha=$(python3 -c 'import json; print(json.load(open("repo/manifest.json"))["source"]["main"])')
           [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
-          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$source_sha" \
+          # The Actions token cannot create tags at older commits whose
+          # workflow files differ from the current default branch. Let GitHub
+          # tag the default branch; the manifest records the actual build SHA.
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
             --prerelease --latest=false --title "Void aarch64 BSP test $GITHUB_RUN_NUMBER" \
-            --notes "Experimental signed XBPS repository. Source: $source_sha. Validation: $GITHUB_SHA. Verify the published key before trusting it. Services and boot image updates are opt-in." repo/*
+            --notes "Experimental signed XBPS repository. Build source: $source_sha. Validation: $GITHUB_SHA. The release tag tracks the default branch at publication; the manifest identifies the actual package sources. Verify the published key before trusting it. Services and boot image updates are opt-in." repo/*
           echo "Repository: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/" >> "$GITHUB_STEP_SUMMARY"
