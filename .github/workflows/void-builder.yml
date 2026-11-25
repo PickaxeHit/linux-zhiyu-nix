@@ -6,6 +6,8 @@ on:
     paths:
       - '.github/workflows/void-builder.yml'
       - 'containers/images.json'
+      - 'deps/deps.json'
+      - 'scripts/deps.py'
       - 'scripts/run-package-container.sh'
       - 'scripts/container-deps.sh'
       - 'scripts/mkxbps.sh'
@@ -68,7 +70,7 @@ jobs:
           assert manifest["source"]["main"] == sys.argv[1], "Source SHA mismatch"
           expected = {Path(k).name: v for k, v in manifest["artifacts"].items() if k.startswith("xbps/") and k.endswith(".xbps")}
           actual = {p.name: p for p in root.glob("*.xbps")}
-          assert len(actual) == 10 and actual.keys() == expected.keys(), "Package set mismatch"
+          assert len(actual) == 11 and actual.keys() == expected.keys(), "Package set mismatch"
           for name, p in actual.items():
               with p.open("rb") as stream:
                   assert hashlib.file_digest(stream, "sha256").hexdigest() == expected[name]["sha256"], name
@@ -159,7 +161,7 @@ jobs:
               xbps-install -Suy xbps
               xbps-install -Suy
               xbps-install -y libcamera
-              xbps-install -y --repository=/repo linux-zhiyu-modules linux-zhiyu-headers linux-zhiyu-firmware linux-zhiyu-images libcamera-zhiyu zhiyu-sensord qcom-va-driver
+              xbps-install -y --repository=/repo linux-zhiyu-modules linux-zhiyu-headers linux-zhiyu-firmware linux-zhiyu-images libcamera-zhiyu zhiyu-sensord qcom-va-driver qbootctl
               # OCI images may supply /proc/mounts rather than the symlink
               # recorded by Void base-files. Normalize only that known case.
               if [ "$(readlink /etc/mtab)" = /proc/mounts ]; then
@@ -171,10 +173,11 @@ jobs:
               set -x
               for service in hexagonrpcd-adsp-rootpd hexagonrpcd-adsp-sensorspd zhiyu-sensord; do test -x "/etc/sv/$service/run"; done
               test -x /usr/bin/sensh
+              test -x /usr/bin/qbootctl
               for driver in v4l2 msm qcom; do test -f "/usr/lib/dri/${driver}_drv_video.so"; done
               loader=/usr/lib/ld-linux-aarch64.so.1
               test -x "$loader"
-              for binary in /usr/bin/zhiyu-sensord /usr/bin/sensh /usr/bin/hexagonrpcd /usr/lib/dri/v4l2_drv_video.so /usr/lib/libcamera.so.*; do
+              for binary in /usr/bin/qbootctl /usr/bin/zhiyu-sensord /usr/bin/sensh /usr/bin/hexagonrpcd /usr/lib/dri/v4l2_drv_video.so /usr/lib/libcamera.so.*; do
                 test -f "$binary"
                 deps=$("$loader" --list "$binary")
                 echo "$deps"

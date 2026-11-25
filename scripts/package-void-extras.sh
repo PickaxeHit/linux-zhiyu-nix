@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 build="$PWD/$BUILD_ROOT"
 stage="$PWD/$STAGE_ROOT"
 mkdir -p "$build" "$stage"
-for n in zhiyu-qrtr sensh hexagonrpc qcom-va-driver; do rm -rf "$build/$n" "$stage/$n"; done
+for n in zhiyu-qrtr sensh hexagonrpc qcom-va-driver qbootctl; do rm -rf "$build/$n" "$stage/$n"; done
 qmic=$(python3 scripts/deps.py path qmic)
 make -C "$qmic" -j"${JOBS:-1}"
 install -Dm755 "$qmic/qmic" "$build/tools/qmic"
@@ -72,3 +72,16 @@ done
 PKG_NAME=qcom-va-driver PKG_VERSION=1.1.1 PKG_LICENSE=MIT \
     PKG_DESC='Qualcomm Iris V4L2 VA-API driver' \
     scripts/emit-package.sh "$stage/qcom-va-driver" "$PACKAGE_OUT"
+
+
+# Keep qbootctl in the signed BSP repo instead of rebuilding in each rootfs.
+# The source revision is the same one used by the existing rootfs builder.
+qboot=$(python3 scripts/deps.py path qbootctl)
+meson setup "$build/qbootctl" "$qboot" --buildtype=release --prefix=/usr --libdir=lib
+meson compile -C "$build/qbootctl" -j"${JOBS:-1}"
+DESTDIR="$stage/qbootctl" meson install -C "$build/qbootctl" --no-rebuild
+install -Dm644 "$qboot/LICENSE" "$stage/qbootctl/usr/share/licenses/qbootctl/LICENSE"
+test -x "$stage/qbootctl/usr/bin/qbootctl"
+PKG_NAME=qbootctl PKG_VERSION=0.0.20250324 PKG_LICENSE=GPL-3.0-or-later \
+    PKG_DESC='Qualcomm boot slot controller' \
+    scripts/emit-package.sh "$stage/qbootctl" "$PACKAGE_OUT"

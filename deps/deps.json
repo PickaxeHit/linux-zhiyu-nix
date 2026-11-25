@@ -96,5 +96,11 @@
     "url": "https://github.com/linux-msm/qrtr.git",
     "rev": "29e36ae164389580a0f8ea7a7fdb728140ae978d",
     "nix": false
+  },
+  "qbootctl": {
+    "type": "git",
+    "url": "https://github.com/linux-msm/qbootctl.git",
+    "rev": "39a6e6daaf029fb0a083777679a15ea2c18f72de",
+    "nix": false
   }
 }

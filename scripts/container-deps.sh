@@ -55,7 +55,7 @@ case ${DISTRO:?} in
             xbps-install -y meson ninja pkg-config python3-Jinja2 python3-ply python3-yaml \
                 eudev-libudev-devel libdrm-devel libevent-devel libyaml-devel libjpeg-turbo-devel \
                 glib-devel qt6-base-devel libglvnd-devel libgbm-devel openssl-devel \
-                gstreamer1-devel gst-plugins-base1-devel protobuf-c-devel libva-devel
+                gstreamer1-devel gst-plugins-base1-devel protobuf-c-devel libva-devel linux-headers
         fi
         ;;
     *) exit 2 ;;
