@@ -75,7 +75,7 @@ cp -a scripts/alsa-ucm2/. "$U"/
 R=stage/linux-zhiyu-firmware/usr/lib/udev/rules.d
 V=stage/linux-zhiyu-firmware/etc/udev/rules.d
 install -d "$R"
-install -m644 scripts/90-dma-heap.rules scripts/91-flash-led.rules \
+install -m644 scripts/70-zhiyu-dma-heap.rules scripts/91-flash-led.rules \
   scripts/90-fastrpc.rules "$R"/
 install -Dm644 scripts/60-persistent-v4l.rules "$V/60-persistent-v4l.rules"
 find "$F" -type f | wc -l
